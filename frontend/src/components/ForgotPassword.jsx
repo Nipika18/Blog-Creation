@@ -21,7 +21,8 @@ const ForgotPassword = () => {
         setLoading(true);
 
         try {
-            await axios.post('http://localhost:8000/forgot-password', { email });
+            const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
+            await axios.post(`${API_BASE}/forgot-password`, { email });
             setStep(2);
         } catch (err) {
             setError(err.response?.data?.detail || 'Email not found in our records.');
@@ -42,7 +43,8 @@ const ForgotPassword = () => {
         setLoading(true);
 
         try {
-            await axios.post('http://localhost:8000/reset-password', {
+            const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
+            await axios.post(`${API_BASE}/reset-password`, {
                 email,
                 new_password: password
             });

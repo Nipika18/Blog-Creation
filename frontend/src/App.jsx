@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import Dashboard from './components/Dashboard';
+import PublicBlog from './components/PublicBlog';
 import './App.css';
 
 
@@ -32,6 +33,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/p/:filename" element={<PublicBlog />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

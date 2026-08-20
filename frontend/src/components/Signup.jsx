@@ -24,7 +24,8 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post('http://localhost:8000/signup', {
+      const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
+      const response = await axios.post(`${API_BASE}/signup`, {
         email,
         password,
       });

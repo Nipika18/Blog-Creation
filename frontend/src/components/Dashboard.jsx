@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { 
-  SquarePen, 
-  MessageSquare, 
-  LogOut, 
-  Download, 
+import {
+  SquarePen,
+  MessageSquare,
+  LogOut,
+  Download,
   ArrowUp,
   User,
   ExternalLink,
@@ -108,7 +108,7 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
   const [showTextColor, setShowTextColor] = useState(false);
   const [showHighlight, setShowHighlight] = useState(false);
   const fileInputRef = useRef(null);
-  
+
   if (!editor) return null;
 
   const handleImageUpload = async (event) => {
@@ -116,16 +116,16 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
     if (file && filename) {
       const formData = new FormData();
       formData.append('image', file);
-      
+
       try {
         const token = localStorage.getItem('token');
         const res = await axios.post(`${API_BASE}/blog/${filename}/upload-image`, formData, {
-          headers: { 
+          headers: {
             'Content-Type': 'multipart/form-data',
-            Authorization: `Bearer ${token}` 
+            Authorization: `Bearer ${token}`
           }
         });
-        
+
         if (res.data.url) {
           // res.data.url is like "/images/..."
           const fullUrl = `${API_BASE}${res.data.url}`;
@@ -141,7 +141,7 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
   return (
     <div className="tiptap-menu-bar">
       <div className="menu-group">
-        <select 
+        <select
           onChange={(e) => editor.chain().focus().setFontFamily(e.target.value).run()}
           className="font-select"
           style={{ minWidth: '120px' }}
@@ -151,7 +151,7 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
             <option key={font.value} value={font.value}>{font.label}</option>
           ))}
         </select>
-        <select 
+        <select
           onChange={(e) => editor.chain().focus().setFontSize(e.target.value).run()}
           className="font-select"
           style={{ minWidth: '60px' }}
@@ -169,9 +169,9 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
         <button onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} className="menu-btn" title="Undo"><Undo size={18} /></button>
         <button onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} className="menu-btn" title="Redo"><Redo size={18} /></button>
       </div>
-      
+
       <div className="menu-divider" />
-      
+
       <div className="menu-group">
         <button onClick={() => editor.chain().focus().toggleBold().run()} className={`menu-btn ${editor.isActive('bold') ? 'active' : ''}`} title="Bold"><Bold size={18} /></button>
         <button onClick={() => editor.chain().focus().toggleItalic().run()} className={`menu-btn ${editor.isActive('italic') ? 'active' : ''}`} title="Italic"><Italic size={18} /></button>
@@ -200,15 +200,15 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
 
       <div className="menu-group">
         <div style={{ position: 'relative' }}>
-          <button 
-            onClick={() => { setShowHighlight(!showHighlight); setShowTextColor(false); }} 
-            className={`menu-btn ${editor.isActive('highlight') ? 'active' : ''}`} 
+          <button
+            onClick={() => { setShowHighlight(!showHighlight); setShowTextColor(false); }}
+            className={`menu-btn ${editor.isActive('highlight') ? 'active' : ''}`}
             title="Highlight Color"
           >
             <Highlighter size={18} />
           </button>
           {showHighlight && (
-            <ColorPickerPopover 
+            <ColorPickerPopover
               current={editor.getAttributes('highlight').color}
               onSelect={(color) => editor.chain().focus().setHighlight({ color }).run()}
               onClose={() => setShowHighlight(false)}
@@ -217,31 +217,31 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
         </div>
 
         <div style={{ position: 'relative' }}>
-          <button 
-            onClick={() => { setShowTextColor(!showTextColor); setShowHighlight(false); }} 
-            className="menu-btn" 
+          <button
+            onClick={() => { setShowTextColor(!showTextColor); setShowHighlight(false); }}
+            className="menu-btn"
             title="Text Color"
           >
             <Palette size={18} />
           </button>
           {showTextColor && (
-            <ColorPickerPopover 
+            <ColorPickerPopover
               current={editor.getAttributes('textStyle').color}
               onSelect={(color) => editor.chain().focus().setColor(color).run()}
               onClose={() => setShowTextColor(false)}
             />
           )}
         </div>
-        
+
         <button onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`menu-btn ${editor.isActive('blockquote') ? 'active' : ''}`} title="Quote"><Quote size={18} /></button>
         <button onClick={() => editor.chain().focus().toggleCodeBlock().run()} className={`menu-btn ${editor.isActive('codeBlock') ? 'active' : ''}`} title="Code Block"><Code size={18} /></button>
         <button onClick={() => fileInputRef.current.click()} className="menu-btn" title="Upload Image">
           <ImageIcon size={18} />
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleImageUpload} 
-            accept="image/*" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            accept="image/*"
             style={{ display: 'none' }}
           />
         </button>
@@ -250,9 +250,9 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
       <div className="menu-divider" />
 
       <div className="menu-group" style={{ marginLeft: 'auto' }}>
-        <button 
-          onClick={onSave} 
-          className="menu-btn save-btn" 
+        <button
+          onClick={onSave}
+          className="menu-btn save-btn"
           disabled={isSaving}
           title="Save Changes"
           style={{ color: '#059669', background: '#ecfdf5' }}
@@ -260,9 +260,9 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
           <Save size={18} />
           <span style={{ marginLeft: '4px', fontSize: '12px' }}>{isSaving ? 'Saving...' : 'Save'}</span>
         </button>
-        <button 
-          onClick={onCancel} 
-          className="menu-btn cancel-btn" 
+        <button
+          onClick={onCancel}
+          className="menu-btn cancel-btn"
           disabled={isSaving}
           title="Cancel Editing"
           style={{ color: '#dc2626', background: '#fef2f2' }}
@@ -275,7 +275,7 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
   );
 };
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
 const CustomTextStyle = TextStyle.extend({
   addAttributes() {
@@ -327,6 +327,7 @@ const Dashboard = () => {
   const [isLoadingBlog, setIsLoadingBlog] = useState(false);
   const [linkedinStatus, setLinkedinStatus] = useState({ connected: false, name: '' });
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
+  const [pendingLinkedInPost, setPendingLinkedInPost] = useState(null);
   const textareaRef = useRef(null);
   const menuRef = useRef(null);
 
@@ -339,7 +340,7 @@ const Dashboard = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -363,6 +364,18 @@ const Dashboard = () => {
     fetchUserProfile();
     fetchLinkedInStatus();
 
+    // Handle 401 Unauthorized globally by clearing stale token and redirecting to login
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && error.response.status === 401) {
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+    );
+
     // Listen for LinkedIn OAuth popup callback
     const handleMessage = (event) => {
       if (event.data?.type === 'LINKEDIN_CONNECTED') {
@@ -370,7 +383,10 @@ const Dashboard = () => {
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   const fetchUserProfile = async () => {
@@ -446,7 +462,7 @@ const Dashboard = () => {
     setGeneratedBlog(null);
     setSelectedBlog(null);
     setError('');
-    
+
     // Simulate progress dots
     let p = 0;
     const interval = setInterval(() => {
@@ -494,20 +510,20 @@ const Dashboard = () => {
     try {
       // Convert HTML back to Markdown
       const markdownContent = turndownService.turndown(editedContent);
-      
+
       const token = localStorage.getItem('token');
-      await axios.put(`${API_BASE}/blog/${filename}`, 
+      await axios.put(`${API_BASE}/blog/${filename}`,
         { content: markdownContent },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       // Update local state
       if (generatedBlog) {
         setGeneratedBlog({ ...generatedBlog, final: markdownContent });
       } else if (selectedBlog) {
         setSelectedBlog({ ...selectedBlog, content: markdownContent });
       }
-      
+
       setIsEditing(false);
       setError('');
     } catch (err) {
@@ -526,15 +542,15 @@ const Dashboard = () => {
     const url = type === 'md' ? `${API_BASE}/download-md/${filename}` : `${API_BASE}/download-docx/${filename}`;
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(url, { 
+      const response = await axios.get(url, {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       // Get filename from Content-Disposition header
       const contentDisposition = response.headers['content-disposition'] || response.headers['Content-Disposition'];
       let downloadFilename = filename;
-      
+
       if (contentDisposition) {
         // Try to match filename="filename" or filename=filename
         const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
@@ -549,22 +565,22 @@ const Dashboard = () => {
       } else if (type === 'md' && !downloadFilename.toLowerCase().endsWith('.md')) {
         downloadFilename += '.md';
       }
-      
+
       const blob = new Blob([response.data], { type: response.headers['content-type'] });
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = downloadFilename; // This is the important part
-      
+
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       setTimeout(() => {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(downloadUrl);
       }, 100);
-      
+
       setError('');
     } catch (err) {
       console.error('Download failed', err);
@@ -583,6 +599,15 @@ const Dashboard = () => {
       console.error('Failed to fetch LinkedIn status', err);
     }
   };
+
+  // Auto-resume posting if the user just successfully connected
+  useEffect(() => {
+    if (linkedinStatus.connected && pendingLinkedInPost) {
+      const filename = pendingLinkedInPost;
+      setPendingLinkedInPost(null);
+      handleLinkedInPost(filename);
+    }
+  }, [linkedinStatus.connected, pendingLinkedInPost]);
 
   const connectLinkedIn = () => {
     const token = localStorage.getItem('token');
@@ -606,10 +631,10 @@ const Dashboard = () => {
 
   const handleLinkedInPost = async (filename) => {
     if (!filename) return;
-    
+
     const envToken = import.meta.env.VITE_LINKEDIN_TOKEN;
-    
     if (!linkedinStatus.connected && !envToken) {
+      setPendingLinkedInPost(filename);
       connectLinkedIn();
       return;
     }
@@ -643,7 +668,7 @@ const Dashboard = () => {
   const handleCopyContent = (silent = false) => {
     const content = generatedBlog?.final || selectedBlog?.content || '';
     if (!content) return;
-    
+
     navigator.clipboard.writeText(content).then(() => {
       if (!silent) alert('Blog content copied to clipboard!');
     }).catch(err => {
@@ -656,7 +681,7 @@ const Dashboard = () => {
   const renderBlog = (content) => {
     return (
       <div className="blog-output">
-        <ReactMarkdown 
+        <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
             img: ({ node, ...props }) => {
@@ -679,13 +704,13 @@ const Dashboard = () => {
           <SquarePen size={20} />
           <span>New Blog</span>
         </button>
-        
+
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.5)', margin: '1rem 0 0.5rem 0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>History</div>
           {pastBlogs.length > 0 ? (
             pastBlogs.map((blog) => (
-              <div 
-                key={blog.filename} 
+              <div
+                key={blog.filename}
                 className={`past-blog-item ${selectedBlog?.filename === blog.filename ? 'active' : ''}`}
                 onClick={() => handleBlogSelect(blog)}
                 title={blog.title}
@@ -733,7 +758,7 @@ const Dashboard = () => {
             justifyContent: 'space-between',
             boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
           }}>
-            <span>⚠️ {error}</span>
+            <span> {error}</span>
             <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>✕</button>
           </div>
         )}
@@ -761,7 +786,7 @@ const Dashboard = () => {
                   <div className="chat-actions" ref={menuRef}>
 
                     <div style={{ position: 'relative' }}>
-                      <button 
+                      <button
                         className={`action-icon-btn ${showActionMenu ? 'active' : ''}`}
                         onClick={() => setShowActionMenu(!showActionMenu)}
                         title="Actions"
@@ -770,93 +795,93 @@ const Dashboard = () => {
                         <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Actions</span>
                         <Menu size={20} />
                       </button>
-                    
+
                       {showActionMenu && (
                         <div className="action-dropdown" style={{ minWidth: '220px' }}>
-                              {!isEditing && (
-                                <>
-                                  <button 
-                                    onClick={() => { handleEdit(); setShowActionMenu(false); }}
-                                    className="dropdown-item"
-                                  >
-                                    <SquarePen size={16} />
-                                    Edit Blog
-                                  </button>
-                                  
-                                  <button 
-                                    onClick={() => handleCopyContent()}
-                                    className="dropdown-item"
-                                  >
-                                    <Copy size={16} />
-                                    Copy Content
-                                  </button>
-                                  
-                                  <div className="dropdown-divider" style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }} />
-                                </>
-                              )}
-                              
-                              <button 
-                                onClick={() => { handleDownload(generatedBlog?.filename || selectedBlog?.filename, 'md'); setShowActionMenu(false); }}
+                          {!isEditing && (
+                            <>
+                              <button
+                                onClick={() => { handleEdit(); setShowActionMenu(false); }}
                                 className="dropdown-item"
-                                disabled={isEditing}
-                                title={isEditing ? "Save or cancel editing to download" : "Download Markdown"}
                               >
-                                <FileText size={16} />
-                                Download MD
+                                <SquarePen size={16} />
+                                Edit Blog
                               </button>
-                              <button 
-                                onClick={() => { handleDownload(generatedBlog?.filename || selectedBlog?.filename, 'docx'); setShowActionMenu(false); }}
+
+                              <button
+                                onClick={() => handleCopyContent()}
                                 className="dropdown-item"
-                                disabled={isEditing}
-                                title={isEditing ? "Save or cancel editing to download" : "Download DOCX"}
                               >
-                                <Download size={16} />
-                                Download DOCX
+                                <Copy size={16} />
+                                Copy Content
                               </button>
-                              <div className="menu-divider" style={{ margin: '4px 0', borderTop: '1px solid #eee' }} />
-                              {linkedinStatus.connected ? (
-                                <>
-                                  <div style={{ padding: '6px 12px', fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>
-                                    ✅ LinkedIn: {linkedinStatus.name}
-                                  </div>
-                                  <button 
-                                    onClick={() => handleLinkedInPost(generatedBlog?.filename || selectedBlog?.filename)}
-                                    className="dropdown-item"
-                                    disabled={isEditing || isPostingLinkedIn}
-                                    title="Post a summary to LinkedIn"
-                                  >
-                                    <ExternalLink size={16} />
-                                    {isPostingLinkedIn ? 'Posting...' : 'Post to LinkedIn'}
-                                  </button>
-                                  <button 
-                                    onClick={disconnectLinkedIn}
-                                    className="dropdown-item"
-                                    style={{ color: '#ef4444' }}
-                                  >
-                                    <X size={16} />
-                                    Disconnect LinkedIn
-                                  </button>
-                                </>
-                              ) : import.meta.env.VITE_LINKEDIN_TOKEN ? (
-                                <button 
-                                  onClick={() => handleLinkedInPost(generatedBlog?.filename || selectedBlog?.filename)}
-                                  className="dropdown-item"
-                                  disabled={isEditing || isPostingLinkedIn}
-                                  title="Post a summary to LinkedIn"
-                                >
-                                  <ExternalLink size={16} />
-                                  {isPostingLinkedIn ? 'Posting...' : 'Post to LinkedIn'}
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={connectLinkedIn}
-                                  className="dropdown-item"
-                                  style={{ color: '#0077b5' }}
-                                >
-                                  <ExternalLink size={16} />
-                                  Connect LinkedIn
-                                </button>
-                              )}
+
+                              <div className="dropdown-divider" style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }} />
+                            </>
+                          )}
+
+                          <button
+                            onClick={() => { handleDownload(generatedBlog?.filename || selectedBlog?.filename, 'md'); setShowActionMenu(false); }}
+                            className="dropdown-item"
+                            disabled={isEditing}
+                            title={isEditing ? "Save or cancel editing to download" : "Download Markdown"}
+                          >
+                            <FileText size={16} />
+                            Download MD
+                          </button>
+                          <button
+                            onClick={() => { handleDownload(generatedBlog?.filename || selectedBlog?.filename, 'docx'); setShowActionMenu(false); }}
+                            className="dropdown-item"
+                            disabled={isEditing}
+                            title={isEditing ? "Save or cancel editing to download" : "Download DOCX"}
+                          >
+                            <Download size={16} />
+                            Download DOCX
+                          </button>
+                          <div className="menu-divider" style={{ margin: '4px 0', borderTop: '1px solid #eee' }} />
+                          {linkedinStatus.connected ? (
+                            <>
+                              <div style={{ padding: '6px 12px', fontSize: '0.75rem', color: '#16a34a', fontWeight: 600 }}>
+                                LinkedIn: {linkedinStatus.name}
+                              </div>
+                              <button
+                                onClick={() => handleLinkedInPost(generatedBlog?.filename || selectedBlog?.filename)}
+                                className="dropdown-item"
+                                disabled={isEditing || isPostingLinkedIn}
+                                title="Post a summary to LinkedIn"
+                              >
+                                <ExternalLink size={16} />
+                                {isPostingLinkedIn ? 'Posting...' : 'Post to LinkedIn'}
+                              </button>
+                              <button
+                                onClick={disconnectLinkedIn}
+                                className="dropdown-item"
+                                style={{ color: '#ef4444' }}
+                              >
+                                <X size={16} />
+                                Disconnect LinkedIn
+                              </button>
+                            </>
+                          ) : import.meta.env.VITE_LINKEDIN_TOKEN ? (
+                            <button
+                              onClick={() => handleLinkedInPost(generatedBlog?.filename || selectedBlog?.filename)}
+                              className="dropdown-item"
+                              disabled={isEditing || isPostingLinkedIn}
+                              title="Post a summary to LinkedIn"
+                            >
+                              <ExternalLink size={16} />
+                              {isPostingLinkedIn ? 'Posting...' : 'Post to LinkedIn'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={connectLinkedIn}
+                              className="dropdown-item"
+                              style={{ color: '#0077b5' }}
+                            >
+                              <ExternalLink size={16} />
+                              Connect LinkedIn
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -871,19 +896,19 @@ const Dashboard = () => {
                     <div style={{ color: '#666', fontSize: '0.9rem' }}>Loading blog content...</div>
                   </div>
                 ) : isEditing ? (
-                   <div 
-                    className="editor-container tiptap-container" 
-                    style={{ 
-                      position: 'relative', 
+                  <div
+                    className="editor-container tiptap-container"
+                    style={{
+                      position: 'relative',
                       zIndex: 10,
                       opacity: isSaving ? 0.6 : 1,
                       pointerEvents: isSaving ? 'none' : 'auto',
                       transition: 'opacity 0.2s ease'
                     }}
                   >
-                    <MenuBar 
-                      editor={editor} 
-                      filename={generatedBlog?.filename || selectedBlog?.filename} 
+                    <MenuBar
+                      editor={editor}
+                      filename={generatedBlog?.filename || selectedBlog?.filename}
                       onSave={handleSave}
                       onCancel={handleCancelEdit}
                       isSaving={isSaving}
@@ -920,8 +945,8 @@ const Dashboard = () => {
                   }}
                   disabled={isGenerating}
                 />
-                <button 
-                  className="gen-btn" 
+                <button
+                  className="gen-btn"
                   disabled={isGenerating || !topic.trim()}
                   onClick={handleGenerate}
                 >
@@ -929,7 +954,7 @@ const Dashboard = () => {
                 </button>
               </div>
             </div>
-            
+
             <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'center', paddingBottom: '0.5rem' }}>
               Blog Writing Agent can make mistakes. Check important info.
             </div>

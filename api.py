@@ -365,6 +365,14 @@ def get_blog(filename: str, db: Session = Depends(database.get_db), current_user
         raise HTTPException(status_code=404, detail="Blog not found")
     return {"content": blog.content}
 
+@app.get("/public/blog/{filename}")
+def get_public_blog(filename: str, db: Session = Depends(database.get_db)):
+    # Look up by filename regardless of user_id, since the filename should be unique (UUID-based).
+    blog = db.query(models.Blog).filter(models.Blog.filename == filename).first()
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+    return {"content": blog.content, "title": blog.title}
+
 class BlogUpdateRequest(BaseModel):
     content: str
 
@@ -462,7 +470,7 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
                 session.commit()
             except Exception as save_err:
                 session.rollback()
-                print(f"❌ Failed to save blog to database: {save_err}")
+                print(f" Failed to save blog to database: {save_err}")
                 raise HTTPException(status_code=500, detail=f"Database error: Could not save blog ({str(save_err)})")
             finally:
                 session.close()
@@ -566,7 +574,7 @@ def markdown_to_docx(md_text: str, blog_title: str, db: Session, blog_id: int) -
                                 doc.add_paragraph(caption, style='Caption')
                         except Exception as e:
                             error_type = type(e).__name__
-                            print(f"❌ DOCX Image Error ({error_type}): {e}")
+                            print(f" DOCX Image Error ({error_type}): {e}")
                             doc.add_paragraph(f"[Image Error ({error_type}): {e}]")
                     else:
                         doc.add_paragraph(f"[Image not found: {src}]")
@@ -639,8 +647,8 @@ def download_docx(filename: str, db: Session = Depends(database.get_db), current
     )
 
 
-@app.get("/")
-def health_check():
+@app.get("/health")
+def read_root():
     return {"status": "ok", "message": "Blog Writing Agent API is running"}
 
 
@@ -720,7 +728,7 @@ def linkedin_callback(code: str = None, state: str = None, error: str = None, db
     html = f"""
     <html>
     <body style="font-family: Arial; text-align: center; padding-top: 100px; background: #1a1a2e; color: white;">
-        <h2>✅ LinkedIn Connected!</h2>
+        <h2> LinkedIn Connected!</h2>
         <p>Connected as: <strong>{linkedin_name}</strong></p>
         <p>You can close this window now.</p>
         <script>
@@ -819,7 +827,7 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
             teaser = cut + '...'
     
     # Include blog URL in the commentary text so users can click through
-    commentary = f"📝 {blog_title}\n\n{teaser}\n\n👉 Read the full article with images below!\n{blog_url}"
+    commentary = f" {blog_title}\n\n{teaser}\n\n Read the full article with images below!\n{blog_url}"
     
     # Enforce LinkedIn 3,000 character limit
     if len(commentary) > 3000:
@@ -941,3 +949,18 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
         "url": "https://www.linkedin.com/in/me/recent-activity/all/"
     }
 
+# --- Static File Serving (For Production Monolith) ---
+@app.get("/{file_name:path}")
+def serve_react_app(file_name: str):
+    dist_path = Path("frontend/dist")
+    file_path = dist_path / file_name
+    
+    if file_path.is_file():
+        return FileResponse(file_path)
+    
+    index_path = dist_path / "index.html"
+    if index_path.is_file():
+        return FileResponse(index_path)
+        
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse("<h1>Frontend not built yet. Run 'npm run build' in the frontend directory.</h1>", status_code=404)

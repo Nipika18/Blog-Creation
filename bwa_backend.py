@@ -3,6 +3,7 @@ from __future__ import annotations
 import operator
 import os
 import re
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TypedDict, List, Optional, Literal, Annotated, Any, Dict, Union, cast
@@ -15,6 +16,7 @@ from langgraph.types import Send
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from dotenv import load_dotenv
+from prompts import ROUTER_SYSTEM, RESEARCH_SYSTEM, ORCH_SYSTEM, WORKER_SYSTEM, DECIDE_IMAGES_SYSTEM
 
 load_dotenv()
 
@@ -79,6 +81,7 @@ class ImageSpec(BaseModel):
     prompt: str = Field(..., description="Prompt to send to the image model.")
     size: str = "512x512"
     quality: Literal["low", "medium", "high"] = "medium"
+    source_preference: Literal["ai", "search"] = Field(default="ai", description="Use 'search' for technical diagrams/charts/UI, 'ai' for aesthetic banners.")
 
 
 class GlobalImagePlan(BaseModel):
@@ -115,198 +118,117 @@ class State(TypedDict):
 # -----------------------------
 # 2) LLM
 # -----------------------------
-from openai import RateLimitError, APIError
-try:
-    from langchain_google_genai import ChatGoogleGenerativeAI
-except ImportError:
-    ChatGoogleGenerativeAI = None
-
-
-primary_llm = ChatOpenAI(
-    model="gpt-4o",
-    api_key=os.getenv("OPENAI_API_KEY"),
-    max_retries=0,       # Fail immediately on 429/Error
-    timeout=5,           # 5 seconds timeout to switch fast
-)
-puter_llm = ChatOpenAI(
-    base_url="https://api.puter.com/puterai/openai/v1/",
-    model="qwen/qwen-2.5-72b-instruct",
-    api_key=os.getenv("PUTER_AUTH_TOKEN"),
-    max_retries=3,
-    timeout=60,
-)
-gemini_llm = ChatGoogleGenerativeAI(
-    model="gemini-3.6-flash",
-    google_api_key=os.getenv("GEMINI_API_KEY"),
-    max_retries=3,
-)
-
-def get_llm_chain(schema=None, static_fallback=None):
+def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, force_provider=None):
     """
-    The 'Unstoppable' Chain: Groq (Llama 3.3 70B) -> Puter (Qwen) -> Gemini (Flash 2.0)
-    If every single API fails and we are generating text (no schema), it resorts to 'Pseudo-Text' expansion.
+    Text LLM Chain: Gemini directly as requested by the user.
     """
     from langchain_core.runnables import RunnableLambda
+    from langchain_google_genai import ChatGoogleGenerativeAI
     import time
-    import random
+    import os
 
     def _invoke_with_fallback(input_params):
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        errors: List[str] = []
-        fallback_used = False
         
-        # 1. Groq Layer (Llama 3.3 70B - Ultra Fast)
-        try:
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key and groq_key.startswith("gsk_"):
-                print("⚡ Trying Groq (llama-3.3-70b) as primary...")
-                llm_g = ChatOpenAI(
-                    base_url="https://api.groq.com/openai/v1",
-                    model="llama-3.3-70b-versatile",
-                    api_key=groq_key,
-                    timeout=10,
-                    max_retries=0
-                )
-                if schema:
-                    hint = "Respond ONLY with valid JSON matching the requested schema. Ensure all bullet lists contain at least 3 items."
-                    params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
-                    chain = llm_g.with_structured_output(schema, method="json_mode")
-                else:
-                    params = input_params
-                    chain = llm_g
-                return chain.invoke(params)
-        except Exception as e:
-            errors.append(f"Groq (llama-3.3): {e}")
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+            return AIMessage(content="Error: GEMINI_API_KEY is not set.")
 
-        fallback_used = True
-
-        # 2. Puter Layer (Qwen) - First Fallback
         try:
-            print("🤖 Trying Puter (Qwen) fallback...")
-            llm_p = ChatOpenAI(
-                base_url="https://api.puter.com/puterai/openai/v1/",
-                model="qwen/qwen-2.5-72b-instruct",
-                api_key=os.getenv("PUTER_AUTH_TOKEN"),
-                timeout=60,
-                max_retries=0
+            print(" Generating with Gemini (gemini-2.5-flash)...")
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                google_api_key=gemini_key,
+                max_output_tokens=max_tokens_limit,
+                temperature=0.7
             )
+            
             if schema:
-                hint = "Respond ONLY with valid JSON."
-                params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
-                chain = llm_p.with_structured_output(schema, method="json_mode")
-            else:
-                params = input_params
-                chain = llm_p
-            res = chain.invoke(params)
-            if hasattr(res, "additional_kwargs"):
-                res.additional_kwargs["llm_fallback_active"] = True
+                llm = llm.with_structured_output(schema)
+                
+            res = llm.invoke(input_params)
             return res
         except Exception as e:
-            errors.append(f"Puter (Qwen): {e}")
+            print(f" Gemini API failed: {e}")
+            
+            # 2. Fallback to OpenRouter (Gemma 4 31B Free)
+            or_key = os.getenv("OPENROUTER_API_KEY")
+            if or_key:
+                try:
+                    from langchain_openai import ChatOpenAI
+                    print(" Trying OpenRouter (google/gemma-4-31b-it:free) as first fallback...")
+                    or_llm = ChatOpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        model="google/gemma-4-31b-it:free",
+                        api_key=or_key,
+                        timeout=45,
+                        max_retries=1,
+                        max_tokens=max_tokens_limit
+                    )
+                    
+                    if schema:
+                        hint = "Respond ONLY with valid JSON matching the requested schema."
+                        params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
+                        chain = or_llm.with_structured_output(schema, method="json_mode")
+                    else:
+                        params = input_params
+                        chain = or_llm
+                        
+                    res = chain.invoke(params)
+                    if hasattr(res, 'content') and isinstance(res.content, str):
+                        import re
+                        res.content = re.sub(r'<think>.*?(</think>|$)', '', res.content, flags=re.DOTALL).strip()
+                    if hasattr(res, "content") and not schema:
+                        res.additional_kwargs["llm_fallback_active"] = True
+                    return res
+                except Exception as oe:
+                    print(f" OpenRouter Gemma failed: {oe}")
 
-        fallback_used = True
-
-        # 3. Gemini Layer (Flash) - Second Fallback
-        try:
-            if not ChatGoogleGenerativeAI:
-                raise ImportError("langchain_google_genai not installed")
-            print("🤖 Trying Gemini (flash-2.0) fallback...")
-            g_llm = ChatGoogleGenerativeAI(
-                model="gemini-3.6-flash",
-                google_api_key=os.getenv("GEMINI_API_KEY"),
-                max_retries=0,
-                timeout=60
-            )
-            chain = g_llm.with_structured_output(schema) if schema else g_llm
-            res = chain.invoke(input_params)
-            if hasattr(res, "additional_kwargs"):
-                res.additional_kwargs["llm_fallback_active"] = True
-            return res
-        except Exception as e:
-            errors.append(f"Gemini (flash-2.0): {e}")
-
-        # 4. Emergency Fallbacks
-        if static_fallback is not None:
-            print("🚨 ALL AI FAILED. Using Emergency Static Object.")
-            # We can't easily tag a Pydantic object with fallback_active unless we modify it
-            # But the nodes will set it if they catch an exception or see this
-            return static_fallback
+            # 3. Fallback to Novita AI
+            novita_key = os.getenv("NOVITA_API_KEY")
+            if novita_key:
+                try:
+                    from langchain_openai import ChatOpenAI
+                    print(" Trying Novita AI (meta-llama/llama-3.1-8b-instruct) as second fallback...")
+                    novita_llm = ChatOpenAI(
+                        base_url="https://api.novita.ai/v3/openai/v1",
+                        model="meta-llama/llama-3.1-8b-instruct",
+                        api_key=novita_key,
+                        timeout=30,
+                        max_retries=1,
+                        max_tokens=max_tokens_limit
+                    )
+                    
+                    if schema:
+                        hint = "Respond ONLY with valid JSON matching the requested schema."
+                        params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
+                        chain = novita_llm.with_structured_output(schema, method="json_mode")
+                    else:
+                        params = input_params
+                        chain = novita_llm
+                        
+                    res = chain.invoke(params)
+                    if hasattr(res, 'content') and isinstance(res.content, str):
+                        import re
+                        res.content = re.sub(r'<think>.*?(</think>|$)', '', res.content, flags=re.DOTALL).strip()
+                    if hasattr(res, "content") and not schema:
+                        res.additional_kwargs["llm_fallback_active"] = True
+                    return res
+                except Exception as ne:
+                    print(f" Novita AI failed: {ne}")
             
-        if not schema:
-            # Pseudo-Writer: Extract and format content from the prompt metadata
-            print("🚨 ALL AI FAILED. Using Pseudo-Writer Fallback.")
+            if static_fallback is not None:
+                return static_fallback
+            if schema:
+                return schema()
+            return AIMessage(content="Content generation failed.")
             
-            # 1. Extract raw content string from messages if needed
-            if isinstance(input_params, list):
-                from langchain_core.messages import HumanMessage
-                content_sources = [m.content for m in input_params if isinstance(m, HumanMessage)]
-                content_str = "\n".join(content_sources) if content_sources else str(input_params)
-            else:
-                content_str = str(input_params)
-            
-            # 2. Extract Title
-            title_search = re.search(r"Section title: (.*)", content_str)
-            title_text = title_search.group(1).strip() if title_search else "Introduction"
-            
-            # 3. Extract content bullets (distinguish from metadata and evidence)
-            # Find the "Bullets:" section and capture everything until "Evidence"
-            bullets_part = ""
-            bullets_match = re.search(r"Bullets:(.*?)(?:Evidence|$)", content_str, re.DOTALL)
-            if bullets_match:
-                bullets_part = bullets_match.group(1)
-            
-            # If "Bullets:" header not found, fall back to general bullet search but exclude metadata-like lines
-            raw_bullets = re.findall(r"^- (.*)", bullets_part or content_str, re.MULTILINE)
-            content_bullets = []
-            for b in raw_bullets:
-                b = b.strip()
-                # Skip evidence lines (contain http or |) and metadata-like keys
-                if "http" in b or "|" in b or b.endswith(":") or not b:
-                    continue
-                content_bullets.append(b)
-            
-            # 4. Format into readable text
-            if content_bullets:
-                sentences = []
-                for b in content_bullets:
-                    s = b[0].upper() + b[1:] if len(b) > 0 else b
-                    if not s.endswith(('.', '!', '?')): s += "."
-                    sentences.append(s)
-                body = " ".join(sentences)
-                msg = AIMessage(content=f"## {title_text}\n\n{body}")
-            else:
-                msg = AIMessage(content=f"## {title_text}\n\nContent generation failed due to API limits. Summary: {title_text} is important for this topic.")
-            
-            msg.additional_kwargs["llm_fallback_active"] = True
-            return msg
-
-        errors_trace = "\n".join(cast(Any, errors)[-5:])
-        raise Exception(f"Total Quota Exhaustion across all available model providers (Groq, Puter, Gemini). Trace:\n{errors_trace}")
-
     return RunnableLambda(_invoke_with_fallback)
-
-# Default fallback chain for simple completions
-llm = get_llm_chain()
 
 # -----------------------------
 # 3) Router
 # -----------------------------
-ROUTER_SYSTEM = """You are a JSON routing module. Return ONLY valid JSON matching this schema:
-{
-  "needs_research": boolean,
-  "mode": "closed_book" | "hybrid" | "open_book",
-  "reason": string,
-  "queries": string[],
-  "max_results_per_query": number
-}
-
-CRITICAL: The 'mode' field MUST be exactly one of: 'closed_book', 'hybrid', 'open_book'.
-
-Modes:
-- closed_book: evergreen concepts.
-- hybrid: evergreen + needs up-to-date examples.
-- open_book: volatile news/latest updates.
-"""
+# ROUTER_SYSTEM prompt → see prompts.py
 
 def router_node(state: State) -> dict:
     decider = get_llm_chain(
@@ -383,24 +305,7 @@ def _iso_to_date(s: Optional[str]) -> Optional[date]:
     except Exception:
         return None
 
-RESEARCH_SYSTEM = """You are a JSON research synthesizer. Return ONLY valid JSON matching this schema:
-{
-  "evidence": [
-    {
-      "title": string,
-      "url": string,
-      "published_at": string | null,
-      "snippet": string,
-      "source": string | null
-    }
-  ]
-}
-
-Rules:
-- Only include items with a non-empty url.
-- Prefer relevant + authoritative sources.
-- Normalize published_at to ISO YYYY-MM-DD if reliably inferable; else null.
-"""
+# RESEARCH_SYSTEM prompt → see prompts.py
 
 def research_node(state: State) -> dict:
     queries = cast(Any, state.get("queries") or [])[:2] # Limit to max 2 queries
@@ -429,7 +334,7 @@ def research_node(state: State) -> dict:
             ]
         )
     except Exception as e:
-        print(f"⚠️ Research extraction failed (all LLMs down), skipping research: {e}")
+        print(f" Research extraction failed (all LLMs down), skipping research: {e}")
         return {"evidence": []}
 
     dedup = {}
@@ -448,41 +353,12 @@ def research_node(state: State) -> dict:
 # -----------------------------
 # 5) Orchestrator (Plan)
 # -----------------------------
-ORCH_SYSTEM = """You are a JSON technical blog planner. Return ONLY valid JSON matching this schema:
-{
-  "blog_title": string,
-  "audience": string,
-  "tone": string,
-  "blog_kind": "explainer" | "tutorial" | "news_roundup" | "comparison" | "system_design",
-  "constraints": string[],
-  "tasks": [
-    {
-      "id": number,
-      "title": string,
-      "goal": string,
-      "bullets": string[],
-      "target_words": number,
-      "tags": string[],
-      "requires_research": boolean,
-      "requires_citations": boolean,
-      "requires_code": boolean
-    }
-  ]
-}
-
-CRITICAL SECTION STRUCTURE: You MUST create EXACTLY 3 tasks, no more, no less, with these EXACT titles:
-- Task 1: "Introduction To [Topic]" with bullets: ["Definition", "Context", "Significance"]
-- Task 2: "Core Principles" with bullets: ["Key concept 1", "Key concept 2", "Key concept 3"]
-- Task 3: "Future Outlook" with bullets: ["Summary", "Implications", "Conclusion"]
-
-CRITICAL: Each task's 'bullets' array MUST contain AT LEAST 3 bullet items (min 3 items).
-CRITICAL: WORD COUNT BUDGET: Sum of 'target_words' MUST match 'TOTAL WORD BUDGET' exactly. Distribute as: Introduction ~30%, Core Principles ~50%, Future Outlook ~20%.
-CRITICAL: ALWAYS create exactly 3 sections regardless of MAX SECTIONS.
-"""
+# ORCH_SYSTEM prompt → see prompts.py
 
 def orchestrator_node(state: State) -> dict:
-    planner = get_llm_chain(
+    orchestrator_llm = get_llm_chain(
         Plan,
+        max_tokens_limit=4000,
         static_fallback=Plan(
             blog_title=state['topic'],
             audience="General",
@@ -512,7 +388,7 @@ def orchestrator_node(state: State) -> dict:
     elif total_budget < 700:
         max_sections = 3
 
-    plan = planner.invoke(
+    plan = orchestrator_llm.invoke(
         [
             SystemMessage(content=ORCH_SYSTEM),
             HumanMessage(
@@ -531,7 +407,7 @@ def orchestrator_node(state: State) -> dict:
     # 1. Force correct section titles
     topic_clean = re.sub(r"\d+\s*words?", "", state['topic'], flags=re.IGNORECASE).strip()
     section_defs = [
-        {"title": f"Introduction To {topic_clean}", "goal": "Provide an overview", "bullets": ["Definition", "Context", "Significance"]},
+        {"title": f"Introduction", "goal": "Provide an overview", "bullets": ["Definition", "Context", "Significance"]},
         {"title": "Core Principles", "goal": "Explain the main topic in depth", "bullets": ["Key concept 1", "Key concept 2", "Key concept 3"]},
         {"title": "Future Outlook", "goal": "Wrap up with future prospects", "bullets": ["Summary", "Implications", "Conclusion"]},
     ]
@@ -571,9 +447,10 @@ def orchestrator_node(state: State) -> dict:
 
 
 # -----------------------------
-# 6) Fanout
+# 6) Fanout — SEQUENTIAL execution to avoid Groq rate limits
 # -----------------------------
 def fanout(state: State):
+    """Run workers SEQUENTIALLY with delays to stay within Groq's 8,000 TPM free-tier limit."""
     assert state["plan"] is not None
     return [
         Send(
@@ -594,87 +471,111 @@ def fanout(state: State):
 # -----------------------------
 # 7) Worker
 # -----------------------------
-WORKER_SYSTEM = """You are an expert blog writer who produces vivid, engaging, and deeply informative prose.
-ONLY output the requested section markdown starting with a level 2 header (e.g. "## Introduction To Kedarnath").
+# WORKER_SYSTEM prompt → see prompts.py
 
-FORMAT RULES (FOLLOW EXACTLY):
-1. Start with a level 2 heading: "## [Section Title]"
-2. Write 1-2 opening paragraphs of flowing, rich prose about the topic.
-3. Then include a line: "Some key points about [topic] include:" or "The key concepts that define [topic] include:" or "[Topic]'s future outlook includes:"
-4. Follow with a structured key-points list formatted as:
-   - For Introduction sections: "Definition: ...", "Context: ...", "Significance: ..."
-   - For Core Principles sections: "Key concept 1: [Name], ...", "Key concept 2: [Name], ...", "Key concept 3: [Name], ..."
-   - For Future Outlook sections: "Summary: ...", "Implications: ...", "Conclusion: ..."
-5. End with 1-2 closing paragraphs of flowing prose that add additional depth.
-
-WRITING STYLE RULES:
-1. **WRITE LIKE A JOURNALIST**: Use vivid storytelling, sensory details, and specific facts/numbers.
-2. **BE SPECIFIC**: Include real names, dates, numbers, and concrete details.
-3. **NO REPETITION**: Never repeat information already stated.
-4. **STAY WITHIN ±5% of the 'Target words'**.
-
-STRICT CONSTRAINTS:
-- **NO INTROS/OUTROS**: NEVER say "Hello", "Welcome", "In this section", "Thank you".
-- **NO LINKS/CODE**: Pure text ONLY.
-- **NO GENERIC FILLER**: Remove phrases like "it is worth noting", "it is important to understand".
-"""
+def _is_section_truncated(section_md: str) -> bool:
+    """Detect if a section was truncated mid-sentence by the LLM's token limit."""
+    stripped = section_md.rstrip()
+    if not stripped:
+        return True
+    last_char = stripped[-1]
+    # A properly finished section ends with punctuation
+    if last_char in '.!?"\u201d':
+        return False
+    # Check if last line is a bullet item (can end without period)
+    last_line = stripped.split('\n')[-1].strip()
+    if last_line.startswith('- ') and len(last_line) > 20:
+        return False
+    return True
 
 def worker_node(payload: dict) -> dict:
     task = Task(**payload["task"])
     plan = Plan(**payload["plan"])
     evidence = [EvidenceItem(**e) for e in payload.get("evidence", [])]
+    topic = payload['topic']
+    topic_clean = re.sub(r"\d+\s*words?", "", topic, flags=re.IGNORECASE).strip()
 
-    bullets_text = "\n- " + "\n- ".join(task.bullets)
     evidence_text = "\n".join(
         f"- {e.title} | {e.url} | {e.published_at or 'date:unknown'}"
         for e in evidence[:20]
     )
 
-    # We add a static fallback for the worker too
-    worker_llm = get_llm_chain(
-        static_fallback=AIMessage(content="Content generation failed for this section due to total LLM quota exhaustion. Please try again later.")
-    )
-
-    res = worker_llm.invoke(
-        [
-            SystemMessage(content=WORKER_SYSTEM),
-            HumanMessage(
-                content=(
-                    f"Blog title: {plan.blog_title}\n"
-                    f"Audience: {plan.audience}\n"
-                    f"Tone: {plan.tone}\n"
-                    f"Blog kind: {plan.blog_kind}\n"
-                    f"Constraints: {plan.constraints}\n"
-                    f"Topic: {payload['topic']}\n"
-                    f"Mode: {payload.get('mode')}\n"
-                    f"As-of: {payload.get('as_of')} (recency_days={payload.get('recency_days')})\n\n"
-                    f"Section title: {task.title}\n"
-                    f"Goal: {task.goal}\n"
-                    f"Target words: {task.target_words}\n"
-                    f"Tags: {task.tags}\n"
-                    f"requires_research: {task.requires_research}\n"
-                    f"requires_citations: False\n"
-                    f"requires_code: False\n"
-                    f"Bullets:{bullets_text}\n\n"
-                    f"Grounding Data (DO NOT cite or list these):\n{evidence_text}\n"
-                )
-            ),
-        ]
-    )
-    # Handle Gemini returning content as a list of parts instead of a string
-    raw_content = res.content
-    if isinstance(raw_content, list):
-        # Extract text from list of content parts like [{'type': 'text', 'text': '...'}]
-        text_parts = []
-        for part in raw_content:
-            if isinstance(part, dict) and 'text' in part:
-                text_parts.append(part['text'])
-            elif isinstance(part, str):
-                text_parts.append(part)
-        section_md = "\n".join(text_parts).strip()
+    # Dynamic Task-Specific Formatting Instructions
+    task_title_lower = task.title.lower()
+    if "intro" in task_title_lower:
+        section_heading = "## Introduction"
+        transition_line = f"Some key points about {topic_clean} include:"
+        bullet_format = "- Definition: [Clear definition]\n- Context: [Historical & current context]\n- Significance: [Key importance]"
+    elif "core" in task_title_lower or "principle" in task_title_lower:
+        section_heading = "## Core Principles"
+        transition_line = f"The key concepts that define {topic_clean} include:"
+        bullet_format = "- Key concept 1: [Name] – [Explanation]\n- Key concept 2: [Name] – [Explanation]\n- Key concept 3: [Name] – [Explanation]"
     else:
-        section_md = str(raw_content).strip()
-    
+        section_heading = "## Future Outlook"
+        transition_line = f"Some key points about {topic_clean}'s future outlook include:"
+        bullet_format = "- Summary: [Overview of future trajectory]\n- Implications: [Impact on industry & society]\n- Conclusion: [Final perspective]"
+
+    # Sequential stagger: wait for Groq's TPM quota to reset between sections
+    if "core" in task_title_lower or "principle" in task_title_lower or "concept" in task_title_lower:
+        time.sleep(8.0)
+    elif "future" in task_title_lower or "outlook" in task_title_lower or "conclusion" in task_title_lower:
+        time.sleep(12.0)
+
+    prompt_messages = [
+        SystemMessage(content=WORKER_SYSTEM),
+        HumanMessage(
+            content=(
+                f"Blog title: {plan.blog_title}\n"
+                f"Topic: {topic_clean}\n"
+                f"Target words: {task.target_words}\n\n"
+                f"EXACT SECTION STRUCTURE TO GENERATE:\n"
+                f"1. Start with exact header: {section_heading}\n"
+                f"2. Write 1-2 opening paragraphs of vivid, flowing prose about {topic_clean}.\n"
+                f"3. Include exact transition line: {transition_line}\n"
+                f"4. Include 3 bullet items formatted exactly as:\n{bullet_format}\n"
+                f"5. End with 1-2 closing paragraphs of flowing prose.\n\n"
+                f"Grounding Data (DO NOT cite or list these):\n{evidence_text}\n"
+            )
+        ),
+    ]
+
+    # Try up to 2 attempts — if first attempt is truncated, retry with Pollinations
+    section_md = ""
+    for attempt in range(2):
+        provider = "pollinations" if attempt > 0 else None
+        worker_llm = get_llm_chain(
+            static_fallback=AIMessage(content=f"{section_heading}\n\nContent generation failed for this section due to total LLM quota exhaustion. Please try again later."),
+            force_provider=provider
+        )
+        res = worker_llm.invoke(prompt_messages)
+
+        # Handle Gemini returning content as a list of parts instead of a string
+        raw_content = res.content
+        if isinstance(raw_content, list):
+            text_parts = []
+            for part in raw_content:
+                if isinstance(part, dict) and 'text' in part:
+                    text_parts.append(part['text'])
+                elif isinstance(part, str):
+                    text_parts.append(part)
+            section_md = "\n".join(text_parts).strip()
+        else:
+            section_md = str(raw_content).strip()
+
+        # Strip any leaked reasoning text before the actual section header
+        header_idx = section_md.find("## ")
+        if header_idx > 0:
+            section_md = section_md[header_idx:]
+        elif header_idx == -1:
+            section_md = f"{section_heading}\n\n{section_md}"
+
+        # Check if section was truncated — if so, retry once
+        if _is_section_truncated(section_md) and attempt == 0:
+            print(f" Section '{task.title}' appears truncated. Retrying with fallback provider...")
+            time.sleep(3)
+            continue
+        break
+
     is_fallback = payload.get("llm_fallback_active", False)
     if hasattr(res, "additional_kwargs") and res.additional_kwargs.get("llm_fallback_active"):
         is_fallback = True
@@ -704,13 +605,15 @@ def merge_content(state: State) -> dict:
         "Evidence", "References?", "Further Reading", "Grounding Data", "Thank You", 
         "Requirements", "Knowledge Base", "Business Applications", "Source Code",
         "Blog Post", "Background Information", "Advantages for Industries", "Disadvantages",
-        "Code snippet", "Example", "Bullets", "Roadmap"
+        "Code snippet", "Example", "Bullets", "Roadmap", "User Safety", "Safety Rating", "Safety", "Moderation"
     ]
     for bh in bad_headers:
         body = re.sub(rf"(?i)^#*\s*{bh}:?.*$", "", body, flags=re.MULTILINE)
     
-    # 4. Remove meta-commentary, research mentions, and placeholders
+    # 4. Remove meta-commentary, research mentions, drafting notes, and placeholders
     meta_patterns = [
+        r"(?i)User Safety:.*",
+        r"(?i)Safety Rating:.*",
         r"(?i)\(DO NOT cite or list these\)",
         r"(?i)Please note:.*",
         r"(?i)Stay tuned for.*",
@@ -719,10 +622,28 @@ def merge_content(state: State) -> dict:
         r"(?i)The focus here is on.*?rather than.*",
         r"(?i)Remember, technology is advancing.*",
         r"(?i)I hope this summary.*",
-        r"(?i)Leaving a comment while you're working.*"
+        r"(?i)Leaving a comment while you're working.*",
+        r"(?i)^Draft:?.*$",
+        r"(?i)^Now count words.*$",
+        r"(?i)^Count:?.*$",
+        r"(?i)^Sentence \d+:.*$",
+        r"(?i)^Paragraph\d+.*$",
+        r"(?i)^Let's (draft|count|compute|outline).*$",
+        r"(?i)^First line:.*$",
+        r"(?i)^We'll (start|write|draft|count).*$",
+        r"(?i)^Target words:.*$",
+        r"(?i)^Word count target:.*$",
+        r"(?i)^Structure:.*$",
+        r"(?i)^Must follow structure:.*$",
+        r"(?i)^Then (end|include|follow|transition).*$",
+        r"(?i)^We need to.*$",
+        r"(?i)^Proposed text:.*$",
+        r"(?i)^First, compute.*$",
+        r"(?i)^I'll (write|count|number|draft).*$",
+        r"(?i)^\"?[A-Za-z]+\"?\d+\s+\"?[A-Za-z]+\"?\d+.*$"
     ]
     for pattern in meta_patterns:
-        body = re.sub(pattern, "", body)
+        body = re.sub(pattern, "", body, flags=re.MULTILINE)
     
     # Remove bracketed link placeholders [Link], [Reference Link 1], etc.
     body = re.sub(r"\[[A-Za-z\s]*\d?\](\s*\(\s*[^)]*\s*\))?", "", body)
@@ -763,47 +684,48 @@ def merge_content(state: State) -> dict:
             new_lines.append(line)
     body = "\n".join(new_lines).strip()
 
-    # 7. Final Hard Pruning
-    topic = state.get("topic", "")
-    word_match = re.search(r"(\d+)\s*words?", str(topic), re.IGNORECASE)
-    if word_match:
-        budget = int(word_match.group(1))
-        words_only = body.split()
-        if len(words_only) > budget:
-            target_words = int(budget * 1.1)
-            matches = list(re.finditer(r'\S+', body))
-            if len(matches) > target_words:
-                cutoff_index = matches[target_words].end()
-                body = body[:cutoff_index]
-                last_period = body.rfind(".")
-                if last_period > len(body) * 0.8:
-                    body = body[:last_period + 1]
-    
     merged_md = f"{body}\n"
     return {"merged_md": merged_md, "final": merged_md}
 
 
-DECIDE_IMAGES_SYSTEM = """You are an expert technical editor. Return ONLY valid JSON matching this schema:
-{
-  "md_with_placeholders": string,
-  "images": [
-    {
-      "placeholder": string,
-      "filename": string,
-      "alt": string,
-      "caption": string,
-      "prompt": string,
-      "size": "256x256" | "512x512" | "1024x1024" | "1024x1792" | "1792x1024",
-      "quality": "low" | "medium" | "high"
-    }
-  ]
-}
+def _get_image_prompts(topic_clean: str):
+    """Shared image prompt generation logic — used by both try and except paths in decide_images."""
+    abstract_keywords = [
+        "seo", "marketing", "business", "strategy", "architecture", "system", "management", 
+        "linkedin", "software", "data", "cloud", "ai", "finance", "economics",
+        "python", "programming", "code", "coding", "java", "javascript", "react", "developer", 
+        "devops", "api", "database", "sql", "html", "css", "c++", "rust", "golang", "web"
+    ]
+    brand_keywords = [
+        "samsung", "apple", "google", "microsoft", "sony", "tesla", "technology", "tech", 
+        "company", "brand", "smartphone", "phone", "device"
+    ]
+    
+    topic_lower = topic_clean.lower()
+    is_abstract = any(kw in topic_lower for kw in abstract_keywords)
+    is_brand = any(kw in topic_lower for kw in brand_keywords)
 
-CRITICAL: EXACTLY 2 images total. Placeholders must be exactly: [[IMAGE_1]], [[IMAGE_2]].
-CRITICAL: Place [[IMAGE_1]] on its own line immediately after the very first paragraph of the entire blog. Place [[IMAGE_2]] after the "## Core Principles" heading.
-CRITICAL: Placeholders MUST be on their own line, separated from other text by a blank line. Do NOT wrap them in Markdown link or image syntax.
-CRITICAL: Preferred size is 1024x576 (exactly 16:9 aspect ratio) to match the blog banner format. Use this for all images.
-"""
+    if is_brand:
+        img1_prompt = f"{topic_clean} flagship product official photo"
+        img1_pref = "search"
+        img2_prompt = f"{topic_clean} technology company logo or product lineup"
+        img2_pref = "search"
+    elif is_abstract:
+        topic_visual = f"{topic_clean} software programming" if any(kw in topic_lower for kw in ["python", "code", "coding", "java", "javascript"]) else topic_clean
+        img1_prompt = f"{topic_visual} concept mind map or diagram"
+        img1_pref = "search"
+        img2_prompt = f"{topic_visual} architecture diagram or infographic"
+        img2_pref = "search"
+    else:
+        img1_prompt = f"{topic_clean} landmark or real photograph"
+        img1_pref = "search"
+        img2_prompt = f"{topic_clean} high quality photo"
+        img2_pref = "search"
+    
+    return img1_prompt, img1_pref, img2_prompt, img2_pref
+
+
+# DECIDE_IMAGES_SYSTEM prompt → see prompts.py
 
 def decide_images(state: State) -> dict:
     merged_md = state["merged_md"]
@@ -811,23 +733,26 @@ def decide_images(state: State) -> dict:
     topic_clean = re.sub(r"\d+\s*words?", "", topic, flags=re.IGNORECASE).strip()
     slug = _safe_slug(topic_clean)
 
-    # 1. Programmatically place [[IMAGE_1]] and [[IMAGE_2]] safely without altering/truncating blog text
+    # 1. Programmatically place [[IMAGE_1]] after Introduction section and [[IMAGE_2]] after Core Principles section
     lines = merged_md.split("\n")
     new_lines = []
     img1_placed = False
     img2_placed = False
 
-    for i, line in enumerate(lines):
-        if not img1_placed and i > 0 and line.strip().startswith("## "):
-            new_lines.append("\n[[IMAGE_1]]\n")
-            img1_placed = True
-        elif img1_placed and not img2_placed and i > 0 and line.strip().startswith("## "):
-            new_lines.append("\n[[IMAGE_2]]\n")
-            img2_placed = True
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            header_lower = stripped[3:].lower()
+            if any(k in header_lower for k in ["core", "principle"]) and not img1_placed:
+                new_lines.append("\n[[IMAGE_1]]\n")
+                img1_placed = True
+            elif any(k in header_lower for k in ["future", "outlook", "conclusion"]) and not img2_placed:
+                new_lines.append("\n[[IMAGE_2]]\n")
+                img2_placed = True
         new_lines.append(line)
 
     if not img1_placed:
-        new_lines.insert(2, "\n[[IMAGE_1]]\n")
+        new_lines.append("\n[[IMAGE_1]]\n")
     if not img2_placed:
         new_lines.append("\n[[IMAGE_2]]\n")
 
@@ -835,7 +760,7 @@ def decide_images(state: State) -> dict:
 
     # 2. Propose image prompts via LLM or fallback
     try:
-        planner = get_llm_chain(GlobalImagePlan)
+        planner = get_llm_chain(GlobalImagePlan, max_tokens_limit=4000)
         plan = state["plan"]
         assert plan is not None
 
@@ -854,26 +779,64 @@ def decide_images(state: State) -> dict:
             ]
         )
         image_specs = [img.model_dump() for img in image_plan.images]
-    except Exception as e:
-        print(f"⚠️ decide_images LLM prompt proposal failed ({e}). Using default prompts...")
-        image_specs = [
+        
+        # Guarantee exactly 2 images are generated
+        if len(image_specs) < 2:
+            print(f" LLM returned only {len(image_specs)} images. Supplementing missing images...")
+        # Use shared helper for fallback prompts
+        img1_prompt, img1_pref, img2_prompt, img2_pref = _get_image_prompts(topic_clean)
+
+        fallback_specs = [
             {
                 "placeholder": "[[IMAGE_1]]",
                 "filename": f"{slug}_banner.webp",
                 "alt": f"Illustration of {topic_clean}",
                 "caption": f"A representation of {topic_clean}",
-                "prompt": f"A high-quality professional 16:9 banner image representing {topic_clean}, clean and modern design",
+                "prompt": img1_prompt,
                 "size": "1024x576",
-                "quality": "high"
+                "quality": "high",
+                "source_preference": img1_pref
             },
             {
                 "placeholder": "[[IMAGE_2]]",
                 "filename": f"{slug}_detail.webp",
                 "alt": f"Details of {topic_clean}",
                 "caption": f"Visual details related to {topic_clean}",
-                "prompt": f"A beautiful detailed 16:9 wide photograph or illustration showcasing concepts related to {topic_clean}",
+                "prompt": img2_prompt,
                 "size": "1024x576",
-                "quality": "high"
+                "quality": "high",
+                "source_preference": img2_pref
+            }
+        ]
+        
+        placeholders_found = {img.get("placeholder") for img in image_specs}
+        for fallback in fallback_specs:
+            if fallback["placeholder"] not in placeholders_found and len(image_specs) < 2:
+                image_specs.append(fallback)
+    except Exception as e:
+        print(f" decide_images LLM prompt proposal failed ({e}). Using default prompts...")
+        img1_prompt, img1_pref, img2_prompt, img2_pref = _get_image_prompts(topic_clean)
+
+        image_specs = [
+            {
+                "placeholder": "[[IMAGE_1]]",
+                "filename": f"{slug}_banner.webp",
+                "alt": f"Illustration of {topic_clean}",
+                "caption": f"A representation of {topic_clean}",
+                "prompt": img1_prompt,
+                "size": "1024x576",
+                "quality": "high",
+                "source_preference": img1_pref
+            },
+            {
+                "placeholder": "[[IMAGE_2]]",
+                "filename": f"{slug}_detail.webp",
+                "alt": f"Details of {topic_clean}",
+                "caption": f"Visual details related to {topic_clean}",
+                "prompt": img2_prompt,
+                "size": "1024x576",
+                "quality": "high",
+                "source_preference": img2_pref
             }
         ]
 
@@ -899,8 +862,13 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
 
     img = Image.open(io.BytesIO(img_bytes))
     
-    # Use LANCZOS for high-quality downsampling
-    img = img.resize((w, h), Image.Resampling.LANCZOS)
+    # Use thumbnail instead of resize to perfectly preserve aspect ratio without squashing or cutting
+    img.thumbnail((w, h), Image.Resampling.LANCZOS)
+    
+    # Pad the image to the exact target size to prevent frontend CSS from cropping it
+    new_img = Image.new("RGB", (w, h), (255, 255, 255))
+    new_img.paste(img, ((w - img.width) // 2, (h - img.height) // 2))
+    img = new_img
     
     out_io = io.BytesIO()
     # Save as WebP for best size/quality ratio. Fallback to JPEG if needed.
@@ -954,14 +922,21 @@ def _search_real_image_url(query: str) -> Optional[str]:
     try:
         from tavily import TavilyClient
         client = TavilyClient(api_key=api_key)
+        
+        # Add anti-watermark and anti-stock filters to ensure high-quality perfect images
+        # Keep query concise (max 4-5 words) to get cleaner search results
+        words = query.split()
+        concise_query = " ".join(words[:5])
+        safe_query = concise_query + " -stock -watermark -alamy -shutterstock -gettyimages -template -dreamstime -123rf -vector"
+        
         # Search for images specifically
-        result = client.search(query=query, search_depth="advanced", include_images=True)
+        result = client.search(query=safe_query, search_depth="advanced", include_images=True)
         images = result.get("images", [])
         if images:
             # Return the first image URL
             return images[0]
     except Exception as e:
-        print(f"⚠️ Tavily image search failed: {e}")
+        print(f" Tavily image search failed: {e}")
     return None
 # 
 # 
@@ -977,74 +952,10 @@ def _download_image_bytes(url: str) -> bytes:
     response.raise_for_status()
     return response.content
 
-def _gemini_generate_image_bytes(prompt: str, size: str = "1024x1024") -> bytes:
-    """
-    Returns raw image bytes generated by Google Gemini (Imagen 3).
-    Env var: GEMINI_API_KEY
-    """
-    from google import genai
-    from google.genai import types
-    import io
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set.")
 
-    client = genai.Client(api_key=api_key)
 
-    try:
-        # Map aspect ratios for Imagen 3
-        # Imagen 3 supports: "1:1", "4:3", "3:4", "16:9", "9:16"
-        try:
-            target_w, target_h = map(int, size.split("x"))
-            ratio = target_w / target_h
-            if 0.9 <= ratio <= 1.1:
-                aspect_ratio = "1:1"
-            elif 1.2 <= ratio <= 1.4:
-                aspect_ratio = "4:3"
-            elif 0.7 <= ratio <= 0.8:
-                aspect_ratio = "3:4"
-            elif 1.7 <= ratio <= 1.8:
-                aspect_ratio = "16:9"
-            elif 0.5 <= ratio <= 0.6:
-                aspect_ratio = "9:16"
-            else:
-                aspect_ratio = "1:1"
-        except Exception:
-            aspect_ratio = "1:1"
-
-        print(f"🎨 Generating {aspect_ratio} image with Gemini Imagen 3")
-        
-        response = client.models.generate_images(
-            model='imagen-3.0-generate-001',
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=aspect_ratio,
-                output_mime_type='image/png'
-            )
-        )
-        
-        if not response.generated_images:
-            raise RuntimeError("Gemini returned no images.")
-            
-        gen_img = response.generated_images[0]
-        
-        # gen_img.image contains the bytes if we used output_mime_type
-        # or it might be a PIL Image object depending on the SDK version
-        if hasattr(gen_img.image, 'image_bytes'):
-            return gen_img.image.image_bytes
-        else:
-            # Fallback for PIL-like object
-            img_byte_arr = io.BytesIO()
-            gen_img.image.save(img_byte_arr, format='PNG')
-            return img_byte_arr.getvalue()
-
-    except Exception as e:
-        print(f"⚠️ Gemini image generation failed: {e}")
-        raise e
-
-def _nvidia_generate_image_bytes(prompt: str, model: str = "flux.2-klein-4b") -> bytes:
+def _nvidia_generate_image_bytes(prompt: str, model: str = "black-forest-labs/flux1-schnell") -> bytes:
     """
     Returns raw image bytes generated by an NVIDIA-hosted model.
     Env var: NVIDIA_API_KEY
@@ -1068,7 +979,7 @@ def _nvidia_generate_image_bytes(prompt: str, model: str = "flux.2-klein-4b") ->
         "response_format": "b64_json"
     }
     
-    print(f"🎨 Generating image with NVIDIA ({model})")
+    print(f" Generating image with NVIDIA ({model})")
     response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
     response.raise_for_status()
     
@@ -1079,41 +990,7 @@ def _nvidia_generate_image_bytes(prompt: str, model: str = "flux.2-klein-4b") ->
     else:
         raise RuntimeError(f"NVIDIA API returned unexpected format: {data}")
 
-def _puter_generate_image_bytes(prompt: str, size: str = "1024x1024") -> bytes:
-    """
-    Returns raw image bytes generated by Puter (dall-e-3).
-    Env var: PUTER_AUTH_TOKEN
-    """
-    import requests
-    import base64
-    
-    api_key = os.environ.get("PUTER_AUTH_TOKEN")
-    if not api_key:
-        raise RuntimeError("PUTER_AUTH_TOKEN is not set.")
-        
-    invoke_url = "https://api.puter.com/puterai/openai/v1/images/generations"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "dall-e-3",
-        "prompt": prompt,
-        "size": size,
-        "response_format": "b64_json"
-    }
-    
-    print(f"🎨 Generating image with Puter (dall-e-3)")
-    response = requests.post(invoke_url, headers=headers, json=payload, timeout=60)
-    response.raise_for_status()
-    
-    data = response.json()
-    if "data" in data and len(data["data"]) > 0 and "b64_json" in data["data"][0]:
-        b64_str = data["data"][0]["b64_json"]
-        return base64.b64decode(b64_str)
-    else:
-        raise RuntimeError(f"Puter API returned unexpected format: {data}")
+
 
 def _pollinations_generate_image_bytes(prompt: str, size: str = "512x512") -> bytes:
     """
@@ -1131,7 +1008,7 @@ def _pollinations_generate_image_bytes(prompt: str, size: str = "512x512") -> by
     encoded_prompt = urllib.parse.quote(prompt)
     url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={w}&height={h}&nologo=true"
     
-    print(f"🌸 Generating AI image with Pollinations.ai (FLUX)")
+    print(f" Generating AI image with Pollinations.ai (FLUX)")
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=20) as response:
         return response.read()
@@ -1175,56 +1052,72 @@ def generate_and_place_images(state: State) -> dict:
         target_size = spec.get("size", "512x512")
         img_bytes = None
 
-        # 1. Try Gemini first (Best Quality)
-        try:
-            print(f"🎨 Gemini Image Gen: {spec['prompt']}")
-            img_bytes = _gemini_generate_image_bytes(spec["prompt"], size=spec.get("size", "1024x1024"))
-        except Exception as e:
-            print(f"⚠️ Gemini failed for {placeholder}: {e}")
-
-        # 2. Try Pollinations AI if Gemini fails
-        if not img_bytes:
+        source_pref = spec.get("source_preference", "ai")
+        
+        def _try_ai():
+            img = None
             try:
-                print(f"🌸 Pollinations AI Image Gen: {spec['prompt']}")
-                img_bytes = _pollinations_generate_image_bytes(spec["prompt"], size=target_size)
+                print(f" Pollinations AI Image Gen: {spec['prompt']}")
+                img = _pollinations_generate_image_bytes(spec["prompt"], size=target_size)
             except Exception as e:
-                print(f"⚠️ Pollinations AI failed for {placeholder}: {e}")
-
-        # 3. Try real image search (Tavily) if AI failed
-        if not img_bytes:
+                print(f" Pollinations AI failed for {placeholder}: {e}")
+            
+            if not img:
+                try:
+                    print(f" NVIDIA FLUX.1-Schnell Image Gen: {spec['prompt']}")
+                    img = _nvidia_generate_image_bytes(spec["prompt"])
+                except Exception as e:
+                    print(f" NVIDIA failed for {placeholder}: {e}")
+            return img
+            
+        def _try_search():
+            img = None
             try:
-                print(f"🔍 Searching Real Images: {spec['prompt']}")
+                print(f" Searching Real Images: {spec['prompt']}")
                 img_url = _search_real_image_url(spec["prompt"])
                 if img_url:
-                    img_bytes = _download_image_bytes(img_url)
+                    img = _download_image_bytes(img_url)
             except Exception as e:
-                print(f"⚠️ Search failed for {placeholder}: {e}")
+                print(f" Search failed for {placeholder}: {e}")
+            return img
 
-        # 4. Ultimate Safety Net: Picsum Photos (NEVER FAILS!)
+        # Forced Routing: Web Search Only
+        print(f" Routing: Web Search only for '{placeholder}' (AI generation disabled)")
+        img_bytes = _try_search()
+
+        # Ultimate Safety Net: Picsum Photos (NEVER FAILS!)
         if not img_bytes:
             try:
-                print(f"🖼️ Picsum Fallback for {placeholder}")
+                print(f" Picsum Fallback for {placeholder}")
                 img_bytes = _fetch_picsum_image_bytes(size=target_size)
             except Exception as fe:
-                print(f"❌ All sources failed for {placeholder}: {fe}")
+                print(f" All sources failed for {placeholder}: {fe}")
                 return placeholder, None, filename
 
         # 4. Resize and Optimize
         if img_bytes:
             try:
-                # Use a default quality of 80 since it's most common
                 img_bytes = _resize_image_bytes(img_bytes, target_size, quality=80)
                 return placeholder, img_bytes, filename
             except Exception as ree:
-                print(f"⚠️ Resize failed for {filename}: {ree}")
-                return placeholder, None, filename
+                print(f" Resize failed for {filename}: {ree}. Falling back to Picsum...")
+                try:
+                    img_bytes = _fetch_picsum_image_bytes(size=target_size)
+                    img_bytes = _resize_image_bytes(img_bytes, target_size, quality=80)
+                    return placeholder, img_bytes, filename
+                except Exception as final_e:
+                    print(f" Ultimate fallback failed for {filename}: {final_e}")
+                    return placeholder, None, filename
         
         return placeholder, None, filename
 
-    # Run processing in parallel
-    print(f"🚀 Processing {len(image_specs)} images in parallel...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        results = list(executor.map(_process_single_image, image_specs))
+    # Run processing sequentially with a small delay so Pollinations AI never returns 429 rate limit errors
+    print(f" Processing {len(image_specs)} images sequentially...")
+    results = []
+    for idx, spec in enumerate(image_specs):
+        if idx > 0:
+            time.sleep(1.5)
+        results.append(_process_single_image(spec))
 
     # Apply results back to MD and state
     final_md = str(md)

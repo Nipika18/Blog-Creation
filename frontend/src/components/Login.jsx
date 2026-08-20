@@ -17,7 +17,8 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post('http://localhost:8000/login', {
+      const API_BASE = import.meta.env.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
+      const response = await axios.post(`${API_BASE}/login`, {
         email,
         password,
       });
