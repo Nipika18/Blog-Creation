@@ -409,6 +409,26 @@ const Dashboard = () => {
     }
   }, [topic]);
 
+  const loadBlogByFilename = async (filename, blogsList = pastBlogs) => {
+    const token = localStorage.getItem('token');
+    if (!token || !filename) return;
+    setIsLoadingBlog(true);
+    try {
+      const res = await axios.get(`${API_BASE}/blog/${filename}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const foundBlog = blogsList.find(b => b.filename === filename);
+      const title = foundBlog?.title || filename.replace(/_[a-f0-9]+\.md$/, '').replace(/_/g, ' ');
+      setSelectedBlog({ filename, title, content: res.data.content });
+      setGeneratedBlog(null);
+    } catch (err) {
+      console.error('Failed to restore active blog', err);
+      localStorage.removeItem('activeBlogFilename');
+    } finally {
+      setIsLoadingBlog(false);
+    }
+  };
+
   const fetchPastBlogs = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -417,40 +437,14 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPastBlogs(res.data);
+      
+      // Auto-restore open blog after page refresh
+      const activeFilename = localStorage.getItem('activeBlogFilename');
+      if (activeFilename) {
+        loadBlogByFilename(activeFilename, res.data);
+      }
     } catch (err) {
       console.error('Failed to fetch past blogs', err);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.reload();
-  };
-
-  const startNewChat = () => {
-    setSelectedBlog(null);
-    setGeneratedBlog(null);
-    setTopic('');
-    setError('');
-    setProgress(0);
-  };
-
-  const handleBlogSelect = async (blog) => {
-    const token = localStorage.getItem('token');
-    setIsLoadingBlog(true);
-    try {
-      const res = await axios.get(`${API_BASE}/blog/${blog.filename}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setSelectedBlog({ ...blog, content: res.data.content });
-      setGeneratedBlog(null);
-      setError('');
-      setIsEditing(false); // Reset editing mode when switching blogs
-    } catch (err) {
-      console.error('Failed to fetch blog content', err);
-      setError('Failed to load blog content.');
-    } finally {
-      setIsLoadingBlog(false);
     }
   };
 
@@ -476,6 +470,9 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGeneratedBlog(res.data);
+      if (res.data.filename) {
+        localStorage.setItem('activeBlogFilename', res.data.filename);
+      }
       fetchPastBlogs();
     } catch (err) {
       setError('Generation failed. Please try again.');
