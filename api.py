@@ -111,20 +111,24 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
     # Fix image paths to absolute URLs
     blog_html = re.sub(r'src="/?images/', f'src="/images/', blog_html)
     
-    # Get public URL
-    public_base_url = os.getenv("PUBLIC_URL", "https://california-bishop-technological-collector.trycloudflare.com")
+    # Get public URL (default to live Render domain)
+    public_base_url = os.getenv("PUBLIC_URL", "https://blog-creation-eetn.onrender.com").rstrip('/')
     
     # Extract first image for OG meta tag
     og_image = ""
-    img_match = re.search(r'src="([^"]+)"', blog_html)
+    img_match = re.search(r'src=["\']([^"\']+)["\']', blog_html)
     if img_match:
-        og_image = img_match.group(1)
-        if og_image.startswith('/'):
-            og_image = f"{public_base_url}{og_image}"
+        img_src = img_match.group(1)
+        if img_src.startswith('http://') or img_src.startswith('https://'):
+            og_image = img_src
+        else:
+            if not img_src.startswith('/'):
+                img_src = f"/{img_src}"
+            og_image = f"{public_base_url}{img_src}"
     
     # Extract description (first 200 chars of text)
     text_only = re.sub(r'<[^>]+>', '', blog_html)
-    description = text_only[:200].strip().replace('"', '&quot;')
+    description = text_only[:200].strip().replace('"', '&quot;').replace('\n', ' ')
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -137,6 +141,9 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
     <meta property="og:type" content="article" />
     <meta property="og:url" content="{public_base_url}/p/{filename}" />
     {f'<meta property="og:image" content="{og_image}" />' if og_image else ''}
+    {f'<meta property="og:image:secure_url" content="{og_image}" />' if og_image else ''}
+    {f'<meta name="twitter:image" content="{og_image}" />' if og_image else ''}
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="author" content="Blog Studio">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
@@ -842,13 +849,22 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
     if len(commentary) > 3000:
         commentary = commentary[:2990] + '...'
 
+    # Add a unique query param to prevent LinkedIn duplicate post rejection
+    unique_blog_url = f"{blog_url}?ref={secrets.token_hex(3)}"
+
     # --- Post as a Rich ARTICLE Share Card (Like LinkedIn Newsletters & Top Companies) ---
     media_item = {
         "status": "READY",
-        "originalUrl": blog_url,
+        "originalUrl": unique_blog_url,
         "title": {"text": blog_title},
         "description": {"text": hook[:200]}
     }
+    
+    # Attach explicit thumbnail image URL if the blog has an image
+    first_image = blog.images[0] if (hasattr(blog, 'images') and blog.images) else None
+    if first_image:
+        img_url = f"{public_base_url.rstrip('/')}/images/{first_image.filename}"
+        media_item["thumbnails"] = [{"url": img_url}]
 
     post_data = {
         "author": person_urn,
@@ -872,12 +888,13 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
     post_json = post_resp.json() if post_resp.content else {}
     post_urn = post_json.get("id", "")
     
-    post_type = "image post" if image_urn else "article link"
+    has_image = bool(first_image)
+    post_type = "article link with image" if has_image else "article link"
     return {
         "message": f"Successfully posted to LinkedIn as {post_type}!",
         "post_id": post_urn,
         "blog_url": blog_url,
-        "has_image": bool(image_urn),
+        "has_image": has_image,
         "url": "https://www.linkedin.com/in/me/recent-activity/all/"
     }
 
