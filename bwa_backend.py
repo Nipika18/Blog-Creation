@@ -151,15 +151,15 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
         except Exception as e:
             print(f" Gemini API failed: {e}")
             
-            # 2. Fallback to OpenRouter (Gemma 4 31B Free)
+            # 2. Fallback to OpenRouter
             or_key = os.getenv("OPENROUTER_API_KEY")
             if or_key:
                 try:
                     from langchain_openai import ChatOpenAI
-                    print(" Trying OpenRouter (google/gemma-4-31b-it:free) as first fallback...")
+                    print(" Trying OpenRouter (nvidia/nemotron-3-ultra-550b-a55b:free) as first fallback...")
                     or_llm = ChatOpenAI(
                         base_url="https://openrouter.ai/api/v1",
-                        model="google/gemma-4-31b-it:free",
+                        model="nvidia/nemotron-3-ultra-550b-a55b:free",
                         api_key=or_key,
                         timeout=45,
                         max_retries=1,
@@ -184,38 +184,6 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
                 except Exception as oe:
                     print(f" OpenRouter Gemma failed: {oe}")
 
-            # 3. Fallback to Novita AI
-            novita_key = os.getenv("NOVITA_API_KEY")
-            if novita_key:
-                try:
-                    from langchain_openai import ChatOpenAI
-                    print(" Trying Novita AI (meta-llama/llama-3.1-8b-instruct) as second fallback...")
-                    novita_llm = ChatOpenAI(
-                        base_url="https://api.novita.ai/v3/openai/v1",
-                        model="meta-llama/llama-3.1-8b-instruct",
-                        api_key=novita_key,
-                        timeout=30,
-                        max_retries=1,
-                        max_tokens=max_tokens_limit
-                    )
-                    
-                    if schema:
-                        hint = "Respond ONLY with valid JSON matching the requested schema."
-                        params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
-                        chain = novita_llm.with_structured_output(schema, method="json_mode")
-                    else:
-                        params = input_params
-                        chain = novita_llm
-                        
-                    res = chain.invoke(params)
-                    if hasattr(res, 'content') and isinstance(res.content, str):
-                        import re
-                        res.content = re.sub(r'<think>.*?(</think>|$)', '', res.content, flags=re.DOTALL).strip()
-                    if hasattr(res, "content") and not schema:
-                        res.additional_kwargs["llm_fallback_active"] = True
-                    return res
-                except Exception as ne:
-                    print(f" Novita AI failed: {ne}")
             
             if static_fallback is not None:
                 return static_fallback
@@ -852,7 +820,7 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
     target_size_str: e.g. "512x512"
     quality: 1-100 (for WebP/JPEG)
     """
-    from PIL import Image
+    from PIL import Image, ImageOps
     import io
 
     try:
@@ -862,13 +830,12 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
 
     img = Image.open(io.BytesIO(img_bytes))
     
-    # Use thumbnail instead of resize to perfectly preserve aspect ratio without squashing or cutting
-    img.thumbnail((w, h), Image.Resampling.LANCZOS)
-    
-    # Pad the image to the exact target size to prevent frontend CSS from cropping it
-    new_img = Image.new("RGB", (w, h), (255, 255, 255))
-    new_img.paste(img, ((w - img.width) // 2, (h - img.height) // 2))
-    img = new_img
+    # Convert to RGB to ensure compatibility
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # Use ImageOps.fit to crop the image to perfectly fill the target aspect ratio
+    img = ImageOps.fit(img, (w, h), method=Image.Resampling.LANCZOS)
     
     out_io = io.BytesIO()
     # Save as WebP for best size/quality ratio. Fallback to JPEG if needed.
