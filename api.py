@@ -800,136 +800,68 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
         current_user.linkedin_person_urn = person_urn
         db.commit()
 
-    # --- Build the LinkedIn IMAGE post with blog link ---
-    blog_title = blog.title or ""
+    # --- Build Eye-Catching LinkedIn Article Post ---
+    blog_title = blog.title or request.topic if 'request' in locals() else (blog.title or "Blog Post")
     raw_blog_content = blog.content or ""
     
-    # Get the public base URL (tunnel or deployed server)
-    public_base_url = os.getenv("PUBLIC_URL", "https://california-bishop-technological-collector.trycloudflare.com")
+    # Get the public base URL (Render domain or tunnel)
+    public_base_url = os.getenv("PUBLIC_URL", "https://blog-creation-eetn.onrender.com")
     blog_url = f"{public_base_url}/p/{filename}"
     
-    # Build teaser: clean text for the post commentary
-    teaser = re.sub(r'!\[.*?\]\([^)]+\)', '', raw_blog_content)
-    teaser = re.sub(r'^\s*\*[^*]+\*\s*$', '', teaser, flags=re.MULTILINE)
-    teaser = re.sub(r'\[\[IMAGE_\d+\]\]', '', teaser)
-    teaser = re.sub(r'^#+ .*$', '', teaser, flags=re.MULTILINE)
-    teaser = re.sub(r'\*\*(.+?)\*\*', r'\1', teaser)
-    teaser = re.sub(r'\*(.+?)\*', r'\1', teaser)
-    teaser = re.sub(r'\n{2,}', '\n\n', teaser).strip()
+    # Extract clean text for summary
+    clean_text = re.sub(r'!\[.*?\]\([^)]+\)', '', raw_blog_content)
+    clean_text = re.sub(r'^\s*\*[^*]+\*\s*$', '', clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r'\[\[IMAGE_\d+\]\]', '', clean_text)
+    clean_text = re.sub(r'^#+ .*$', '', clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_text)
+    clean_text = re.sub(r'\*(.+?)\*', r'\1', clean_text)
+    clean_text = re.sub(r'\n{2,}', '\n\n', clean_text).strip()
     
-    # Take first ~800 chars ending at a sentence
-    if len(teaser) > 800:
-        cut = teaser[:800]
-        last_period = cut.rfind('.')
-        if last_period > 400:
-            teaser = cut[:last_period + 1]
-        else:
-            teaser = cut + '...'
+    # Extract first 2-3 sentences for a strong hook
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 10]
+    hook = " ".join(sentences[:2]) if len(sentences) >= 2 else (sentences[0] if sentences else clean_text[:200])
+    if len(hook) > 250:
+        hook = hook[:245] + "..."
+        
+    # Generate auto-hashtags based on title words
+    title_words = [re.sub(r'[^a-zA-Z0-9]', '', w) for w in blog_title.split()]
+    title_words = [w.capitalize() for w in title_words if len(w) > 3]
+    hashtags = " ".join([f"#{w}" for w in title_words[:5]])
+    if not hashtags:
+        hashtags = "#Tech #Innovation #AI #Article"
     
-    # Include blog URL in the commentary text so users can click through
-    commentary = f" {blog_title}\n\n{teaser}\n\n Read the full article with images below!\n{blog_url}"
+    # Build professional, eye-catching post commentary
+    commentary = (
+        f"🚀 {blog_title}\n\n"
+        f"{hook}\n\n"
+        f"Discover full insights, key architecture, and practical takeaways in the complete article below!\n\n"
+        f"{hashtags}"
+    )
     
     # Enforce LinkedIn 3,000 character limit
     if len(commentary) > 3000:
         commentary = commentary[:2990] + '...'
 
-    # --- Try to upload the first blog image to LinkedIn ---
-    image_urn = None
-    first_image = blog.images[0] if blog.images else None
-    
-    if first_image and first_image.content:
-        try:
-            # Step 1: Register the image upload with LinkedIn
-            register_data = {
-                "registerUploadRequest": {
-                    "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
-                    "owner": person_urn,
-                    "serviceRelationships": [{
-                        "relationshipType": "OWNER",
-                        "identifier": "urn:li:userGeneratedContent"
-                    }]
-                }
-            }
-            register_resp = requests.post(
-                'https://api.linkedin.com/v2/assets?action=registerUpload',
-                headers=headers,
-                json=register_data
-            )
-            
-            if register_resp.ok:
-                register_json = register_resp.json()
-                upload_url = register_json['value']['uploadMechanism']['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']['uploadUrl']
-                image_urn = register_json['value']['asset']
-                
-                # Step 2: Upload the actual image binary
-                # Detect content type from filename
-                img_filename = first_image.filename.lower()
-                if img_filename.endswith('.png'):
-                    content_type = 'image/png'
-                elif img_filename.endswith('.gif'):
-                    content_type = 'image/gif'
-                elif img_filename.endswith('.webp'):
-                    content_type = 'image/webp'
-                else:
-                    content_type = 'image/jpeg'
-                
-                upload_resp = requests.put(
-                    upload_url,
-                    headers={
-                        'Authorization': f'Bearer {token}',
-                        'Content-Type': content_type,
-                    },
-                    data=first_image.content
-                )
-                
-                if not upload_resp.ok:
-                    print(f"Image upload failed: {upload_resp.status_code} {upload_resp.text}")
-                    image_urn = None  # Fall back to no image
-            else:
-                print(f"Image register failed: {register_resp.status_code} {register_resp.text}")
-        except Exception as e:
-            print(f"Image upload error: {e}")
-            image_urn = None
+    # --- Post as a Rich ARTICLE Share Card (Like LinkedIn Newsletters & Top Companies) ---
+    media_item = {
+        "status": "READY",
+        "originalUrl": blog_url,
+        "title": {"text": blog_title},
+        "description": {"text": hook[:200]}
+    }
 
-    # --- Build the post payload ---
-    if image_urn:
-        # IMAGE post: big image displayed in feed + blog link in text
-        post_data = {
-            "author": person_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": commentary},
-                    "shareMediaCategory": "IMAGE",
-                    "media": [{
-                        "status": "READY",
-                        "media": image_urn,
-                        "title": {"text": blog_title},
-                        "description": {"text": teaser[:200]}
-                    }]
-                }
-            },
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
-        }
-    else:
-        # Fallback: ARTICLE link card if no image available
-        post_data = {
-            "author": person_urn,
-            "lifecycleState": "PUBLISHED",
-            "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": {"text": commentary},
-                    "shareMediaCategory": "ARTICLE",
-                    "media": [{
-                        "status": "READY",
-                        "originalUrl": blog_url,
-                        "title": {"text": blog_title},
-                        "description": {"text": teaser[:200]}
-                    }]
-                }
-            },
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
-        }
+    post_data = {
+        "author": person_urn,
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": commentary},
+                "shareMediaCategory": "ARTICLE",
+                "media": [media_item]
+            }
+        },
+        "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
+    }
         
     post_resp = requests.post('https://api.linkedin.com/v2/ugcPosts', headers=headers, json=post_data)
     
