@@ -151,9 +151,10 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
             font-family: 'Merriweather', Georgia, serif;
-            background: #f8f9fa;
+            background: #f4f6f8;
             color: #1a1a2e;
-            line-height: 1.8;
+            line-height: 1.85;
+            padding: 2rem 1rem;
         }}
         .hero-banner {{
             width: 100%;
@@ -162,9 +163,13 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
             display: block;
         }}
         .article-container {{
-            max-width: 720px;
+            max-width: 880px;
             margin: 0 auto;
-            padding: 2.5rem 1.5rem 4rem;
+            padding: 3.5rem 3rem 4.5rem;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+            border: 1px solid #e9ecef;
         }}
         h1 {{
             font-family: 'Inter', sans-serif;
@@ -243,6 +248,58 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
             padding: 0;
             color: inherit;
         }}
+        @media (max-width: 768px) {{
+            body {{
+                padding: 0.75rem 0.5rem;
+                background: #f8f9fa;
+            }}
+            .article-container {{
+                padding: 2rem 1.25rem 3rem;
+                border-radius: 12px;
+                width: 100%;
+            }}
+            h1 {{
+                font-size: 1.85rem;
+            }}
+            h2 {{
+                font-size: 1.35rem;
+                margin-top: 2rem;
+            }}
+            h3 {{
+                font-size: 1.15rem;
+            }}
+            p, li {{
+                font-size: 1rem;
+                line-height: 1.75;
+            }}
+            img {{
+                margin: 1.25rem 0;
+                border-radius: 8px;
+            }}
+            blockquote {{
+                padding: 0.75rem 1rem;
+                margin: 1.25rem 0;
+            }}
+            pre {{
+                padding: 1rem;
+                font-size: 0.85rem;
+            }}
+        }}
+        @media (max-width: 480px) {{
+            body {{
+                padding: 0;
+                background: #ffffff;
+            }}
+            .article-container {{
+                padding: 1.5rem 1rem 3rem;
+                border-radius: 0;
+                border: none;
+                box-shadow: none;
+            }}
+            h1 {{
+                font-size: 1.6rem;
+            }}
+        }}
         .footer {{
             text-align: center;
             padding: 2rem;
@@ -261,7 +318,7 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
             color: #6b7280;
             display: block;
             text-align: center;
-            margin-top: -1rem;
+            margin-top: -0.75rem;
             margin-bottom: 2rem;
         }}
     </style>

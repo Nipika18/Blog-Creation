@@ -328,11 +328,16 @@ const Dashboard = () => {
   const [linkedinStatus, setLinkedinStatus] = useState({ connected: false, name: '' });
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
   const [pendingLinkedInPost, setPendingLinkedInPost] = useState(null);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
   const textareaRef = useRef(null);
   const menuRef = useRef(null);
+  const accountMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setShowActionMenu(false);
       }
@@ -424,6 +429,39 @@ const Dashboard = () => {
     } catch (err) {
       console.error('Failed to restore active blog', err);
       localStorage.removeItem('activeBlogFilename');
+    } finally {
+      setIsLoadingBlog(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('activeBlogFilename');
+    window.location.reload();
+  };
+
+  const startNewChat = () => {
+    setSelectedBlog(null);
+    setGeneratedBlog(null);
+    setTopic('');
+    setError('');
+    setProgress(0);
+    localStorage.removeItem('activeBlogFilename');
+  };
+
+  const handleBlogSelect = async (blog) => {
+    const token = localStorage.getItem('token');
+    setIsLoadingBlog(true);
+    try {
+      const res = await axios.get(`${API_BASE}/blog/${blog.filename}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSelectedBlog({ ...blog, content: res.data.content });
+      setGeneratedBlog(null);
+      localStorage.setItem('activeBlogFilename', blog.filename);
+    } catch (err) {
+      console.error('Failed to fetch blog', err);
+      setError('Failed to fetch blog content.');
     } finally {
       setIsLoadingBlog(false);
     }
@@ -722,20 +760,43 @@ const Dashboard = () => {
           )}
         </div>
 
-        <div className="user-profile" style={{ cursor: 'default', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.5rem', paddingBottom: '0.5rem' }}>
-          <div className="user-avatar" style={{ background: '#4338ca' }}>
-            {user?.email?.[0]?.toUpperCase() || <User size={16} />}
-          </div>
-          <div style={{ flex: 1, fontSize: '0.85rem', color: '#ececec', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {user?.email}
-          </div>
-        </div>
+        {/* Account Profile Pill Card & Popover Menu */}
+        <div ref={accountMenuRef} style={{ position: 'relative', marginTop: 'auto' }}>
+          {showAccountMenu && (
+            <div className="account-popover-menu">
+              <div className="popover-header">ACCOUNT</div>
+              <div className="popover-divider" />
+              <button 
+                className="popover-item danger"
+                onClick={() => {
+                  setShowAccountMenu(false);
+                  handleLogout();
+                }}
+              >
+                <LogOut size={16} />
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
 
-        <div className="user-profile" onClick={handleLogout} style={{ marginTop: 0 }}>
-          <div style={{ width: 32, display: 'flex', justifyContent: 'center' }}>
-            <LogOut size={16} />
+          <div 
+            className="account-pill-card"
+            onClick={() => setShowAccountMenu(!showAccountMenu)}
+            title="Account & Profile Settings"
+          >
+            <div className="account-avatar">
+              {user?.email?.[0]?.toUpperCase() || <User size={16} />}
+            </div>
+            <div className="account-details">
+              <div className="account-name">
+                {user?.email ? user.email.split('@')[0] : 'Sirat'} <span className="account-role">[ADMIN]</span>
+              </div>
+              <div className="account-email">{user?.email || 'sirat@yopmail.com'}</div>
+            </div>
+            <div className="account-dots">
+              <MoreVertical size={16} />
+            </div>
           </div>
-          <div style={{ flex: 1, fontSize: '0.9rem' }}>Log Out</div>
         </div>
       </div>
 
