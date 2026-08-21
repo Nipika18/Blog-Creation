@@ -16,3 +16,4 @@ langchain-community
 passlib[bcrypt]
 python-jose[cryptography]
 python-docx
+Markdown
