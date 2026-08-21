@@ -909,13 +909,13 @@ def _search_real_image_url(query: str) -> Optional[list]:
 # 
 def _download_image_bytes(url: str) -> bytes:
     """
-    Downloads image bytes from a URL.
+    Downloads image bytes from a URL with a tight 5-second timeout.
     """
     import requests
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
-    response = requests.get(url, headers=headers, timeout=20)
+    response = requests.get(url, headers=headers, timeout=5)
     response.raise_for_status()
     return response.content
 
@@ -1043,13 +1043,10 @@ def generate_and_place_images(state: State) -> dict:
         
         return placeholder, None, filename
 
-    # Run processing sequentially with a small delay so Pollinations AI never returns 429 rate limit errors
-    print(f" Processing {len(image_specs)} images sequentially...")
-    results = []
-    for idx, spec in enumerate(image_specs):
-        if idx > 0:
-            time.sleep(1.5)
-        results.append(_process_single_image(spec))
+    # Process all image searches and downloads in parallel for maximum speed
+    print(f" Processing {len(image_specs)} images in parallel...")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(_process_single_image, image_specs))
 
     # Apply results back to MD and state
     final_md = str(md)
