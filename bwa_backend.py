@@ -900,31 +900,28 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
 
 # 
 # 
-def _fetch_fallback_image_bytes(keywords: str, size: str = "512x512") -> bytes:
+def _fetch_fallback_image_bytes(keywords: str, size: str = "1024x576") -> bytes:
     """
-    Fetches a fallback image from a public service (LoremFlickr).
+    Fetches a high-quality curated stock banner image (Unsplash API).
     """
     import urllib.request
     import urllib.parse
     
-    # Clean keywords: take first 3 words, remove non-alphanumeric
     clean_kws = re.sub(r"[^a-zA-Z0-9 ]", "", keywords)
-    search_term = ",".join(clean_kws.split()[:3]) or "technology"
+    terms = [w for w in clean_kws.split() if len(w) > 2]
+    search_term = ",".join(terms[:3]) or "technology,abstract"
     
+    url = f"https://source.unsplash.com/1024x576/?{urllib.parse.quote(search_term)}"
     try:
-        w, h = map(int, size.split("x"))
-    except Exception:
-        w, h = 512, 512
-
-    url = f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(search_term)}"
-    
-    try:
-        # Use a user-agent to avoid being blocked
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=15) as response:
             return response.read()
-    except Exception as e:
-        raise RuntimeError(f"Fallback image fetch failed: {e}")
+    except Exception:
+        # Emergency backup high-res technology banner
+        fallback_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1024&h=576&fit=crop"
+        req = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return response.read()
 
 
 def _fetch_pollinations_image_bytes(prompt: str, size: str = "1024x576", model: str = "flux") -> bytes:
@@ -979,54 +976,92 @@ def _fetch_imagen_image_bytes(prompt: str) -> Optional[bytes]:
     return None
 
 
+def _build_dynamic_image_prompt(prompt: str, topic: str = "") -> str:
+    """Uses LLM to dynamically generate an ideal, professional image prompt for ANY topic."""
+    from langchain_core.messages import SystemMessage, HumanMessage
+    
+    system_prompt = (
+        "You are an expert AI image prompt engineer for professional blog banners.\n"
+        "Given a topic and image placeholder description, write a single concise 16:9 banner image prompt (max 30 words).\n\n"
+        "STRICT GUIDELINES:\n"
+        "1. For AI / Software / Tech topics: Request a 'flat vector technology illustration' or 'sleek 3D digital vector art' with vibrant colors and clear concepts.\n"
+        "2. For Travel / Nature / Places topics: Request 'professional editorial photography, scenic landscape, cinematic lighting, photorealistic'.\n"
+        "3. For Business / Finance / Education topics: Request a 'clean modern corporate vector graphic' or 'minimalist editorial illustration'.\n"
+        "4. NEVER request grid split-screens, multi-panels, unreadable text, or low-quality clipart.\n\n"
+        "Return ONLY the image prompt string, nothing else."
+    )
+    
+    try:
+        chain = get_llm_chain()
+        res = chain.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Topic: {topic}\nPlaceholder: {prompt}")
+        ])
+        if hasattr(res, "content") and isinstance(res.content, str) and len(res.content.strip()) > 10:
+            cleaned = res.content.strip().replace('"', '').replace('\n', ' ')
+            return cleaned
+    except Exception as e:
+        print(f" Dynamic prompt LLM generation failed: {e}")
+        
+    # Fallback if LLM call is unavailable
+    base_prompt = f"{prompt} {topic}".strip() if topic and topic.lower() not in prompt.lower() else prompt
+    return f"professional editorial graphic of {base_prompt}, high resolution 16:9 banner, 8k, photorealistic"
+
+
 def generate_single_image_bytes(prompt: str, topic: str = "", size: str = "1024x576") -> bytes:
     """
-    Generates 100% copyright-safe AI images using FLUX.1, Google Imagen 3, SDXL, or FLUX Realism.
+    Generates 100% professional, safe, high-resolution AI blog images.
     """
     import io
     from PIL import Image
 
-    full_prompt = f"{prompt} {topic}".strip() if topic and topic.lower() not in prompt.lower() else prompt
+    # Dynamically generate ideal visual prompt using LLM if available
+    enhanced_prompt = _build_dynamic_image_prompt(prompt, topic)
+    print(f" Visual image prompt: '{enhanced_prompt}'")
+
     img_bytes = None
 
-    # 1. Primary: FLUX.1 / SDXL (Pollinations AI - Fast, 100% Free, High Quality)
+    # 1. Primary: Google Imagen 3 (via GEMINI_API_KEY)
     try:
-        print(f" Generating primary AI image with FLUX.1: '{full_prompt}'")
-        img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="flux")
+        print(f" Generating primary AI image with Google Imagen 3: '{enhanced_prompt}'")
+        img_bytes = _fetch_imagen_image_bytes(enhanced_prompt)
     except Exception as e:
-        print(f" FLUX.1 generation failed: {e}")
+        print(f" Google Imagen 3 generation failed: {e}")
 
-    # 2. Fallback 1: Google Imagen 3 (via GEMINI_API_KEY)
+    # 2. Secondary: FLUX.1 (Pollinations AI)
     if not img_bytes:
         try:
-            print(f" Trying Google Imagen 3 fallback for prompt: '{full_prompt}'")
-            img_bytes = _fetch_imagen_image_bytes(full_prompt)
+            print(f" Trying FLUX.1 image generator: '{enhanced_prompt}'")
+            img_bytes = _fetch_pollinations_image_bytes(enhanced_prompt, size, model="flux")
         except Exception as e:
-            print(f" Google Imagen 3 generation failed: {e}")
+            print(f" FLUX.1 generation failed: {e}")
 
-    # 3. Fallback 2: Stable Diffusion XL (SDXL - 100% Free Open-Source AI)
+    # 3. Fallback 1: FLUX Realism
     if not img_bytes:
         try:
-            print(f" Trying Stable Diffusion XL (SDXL) for prompt: '{full_prompt}'")
-            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="sdxl")
-        except Exception as e:
-            print(f" SDXL generation failed: {e}")
-
-    # 4. Fallback 3: FLUX Realism (Photorealistic Open-Source AI)
-    if not img_bytes:
-        try:
-            print(f" Trying FLUX Realism for prompt: '{full_prompt}'")
-            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="flux-realism")
+            print(f" Trying FLUX Realism: '{enhanced_prompt}'")
+            img_bytes = _fetch_pollinations_image_bytes(enhanced_prompt, size, model="flux-realism")
         except Exception as e:
             print(f" FLUX Realism generation failed: {e}")
 
-    # 5. Fallback 4: SD Turbo Model
+    # 4. Fallback 2: Curated Stock Photo Banner
     if not img_bytes:
         try:
-            print(f" Trying Pollinations Turbo model for prompt: '{full_prompt}'")
-            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="turbo")
+            print(f" Trying stock banner fallback for prompt: '{prompt}'")
+            img_bytes = _fetch_fallback_image_bytes(prompt, size)
         except Exception as e:
-            print(f" Pollinations Turbo failed: {e}")
+            print(f" Fallback generator failed: {e}")
+
+    if img_bytes:
+        try:
+            img_bytes = _resize_image_bytes(img_bytes, size, quality=80)
+        except Exception as ree:
+            print(f" Image resize failed: {ree}")
+
+    return img_bytes
+
+
+
 
 
 
