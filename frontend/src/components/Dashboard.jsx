@@ -34,7 +34,10 @@ import {
   Image as ImageIcon,
   Menu,
   MoreVertical,
-  Copy
+  Copy,
+  Sparkles,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
@@ -311,7 +314,131 @@ const CustomTextStyle = TextStyle.extend({
   },
 })
 
+const ImagePlaceholderCard = ({ placeholderTag, index, prompt, filename, onImageUpdated }) => {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleGenerateAI = async () => {
+    if (!filename) {
+      setError('Please wait until blog draft is saved before generating images.');
+      return;
+    }
+    setIsGenerating(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_BASE}/blog/${filename}/generate-image`, {
+        placeholder: placeholderTag,
+        prompt: prompt
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.data && res.data.updated_content) {
+        onImageUpdated(res.data.updated_content);
+      }
+    } catch (err) {
+      console.error('AI image generation failed', err);
+      setError(err.response?.data?.detail || 'Failed to generate AI image.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleManualUploadClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!filename) {
+      setError('Please wait until blog draft is saved before uploading images.');
+      return;
+    }
+
+    setIsUploading(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      formData.append('placeholder', placeholderTag);
+
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_BASE}/blog/${filename}/upload-image`, formData, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data' 
+        }
+      });
+
+      if (res.data && res.data.updated_content) {
+        onImageUpdated(res.data.updated_content);
+      }
+    } catch (err) {
+      console.error('Manual upload failed', err);
+      setError(err.response?.data?.detail || 'Failed to upload image.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="image-placeholder-card">
+      <div className="placeholder-header">
+        <div className="placeholder-badge">🎨 Image Slot #{index}</div>
+        {prompt && <div className="placeholder-prompt">" {prompt} "</div>}
+      </div>
+
+      {(isGenerating || isUploading) ? (
+        <div className="placeholder-loading">
+          <Loader2 className="animate-spin" size={24} />
+          <span>{isGenerating ? 'Generating AI Image...' : 'Uploading Image...'}</span>
+        </div>
+      ) : (
+        <div className="placeholder-actions">
+          <button 
+            type="button"
+            className="placeholder-btn btn-ai" 
+            onClick={handleGenerateAI}
+            title="Generate Image using AI"
+          >
+            <Sparkles size={18} />
+            <span>Generate by AI</span>
+          </button>
+          
+          <button 
+            type="button"
+            className="placeholder-btn btn-upload" 
+            onClick={handleManualUploadClick}
+            title="Upload local image file"
+          >
+            <Upload size={18} />
+            <span>Upload Manually</span>
+          </button>
+          
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            accept="image/png, image/jpeg, image/webp, image/gif" 
+            style={{ display: 'none' }} 
+          />
+        </div>
+      )}
+
+      {error && <div className="placeholder-error">{error}</div>}
+    </div>
+  );
+};
+
 const Dashboard = () => {
+
   const [pastBlogs, setPastBlogs] = useState([]);
   const [selectedBlog, setSelectedBlog] = useState(null);
   const [topic, setTopic] = useState('');
@@ -713,23 +840,84 @@ const Dashboard = () => {
     setShowActionMenu(false);
   };
 
-  const renderBlog = (content) => {
+  const handleImageUpdated = (newContent) => {
+    if (generatedBlog) {
+      setGeneratedBlog(prev => prev ? ({ ...prev, final: newContent }) : null);
+    }
+    if (selectedBlog) {
+      setSelectedBlog(prev => prev ? ({ ...prev, content: newContent }) : null);
+    }
+    fetchPastBlogs();
+  };
+
+  const renderBlog = (content, filename) => {
+    if (!content) return null;
+
+    // Clean stray brackets like `[\n![` or `[ ![` left over from old draft placeholders
+    const cleanContent = content
+      .replace(/\[\s*(\!\[[^\]]*\]\([^\)]+\))/g, '$1')
+      .replace(/\[\s*\n+(\!\[)/g, '\n\n$1');
+
+    const regex = /(\[+IMAGE_?(?:PLACEHOLDER_)?\d+(?:\:[^\]]+)?\]+)/gi;
+    const parts = cleanContent.split(regex);
+
+
+    if (parts.length === 1) {
+      return (
+        <div className="blog-output">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              img: ({ node, ...props }) => {
+                const src = props.src.startsWith('http') ? props.src : (props.src.startsWith('/') ? `${API_BASE}${props.src}` : `${API_BASE}/${props.src}`);
+                return <img {...props} src={src} alt={props.alt || 'blog image'} />;
+              }
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      );
+    }
+
     return (
       <div className="blog-output">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            img: ({ node, ...props }) => {
-              const src = props.src.startsWith('http') ? props.src : `${API_BASE}/${props.src}`;
-              return <img {...props} src={src} alt={props.alt || 'blog image'} />;
-            }
-          }}
-        >
-          {content}
-        </ReactMarkdown>
+        {parts.map((part, idx) => {
+          if (!part) return null;
+          const match = part.match(/^\[+IMAGE_?(?:PLACEHOLDER_)?(\d+)(?:\:\s*([^\]]+))?\]+$/i);
+          if (match) {
+            const slotNum = match[1] || (idx + 1);
+            const promptText = match[2] || '';
+            return (
+              <ImagePlaceholderCard
+                key={`placeholder-${idx}`}
+                placeholderTag={part}
+                index={slotNum}
+                prompt={promptText}
+                filename={filename}
+                onImageUpdated={handleImageUpdated}
+              />
+            );
+          }
+          return (
+            <ReactMarkdown
+              key={`md-${idx}`}
+              remarkPlugins={[remarkGfm]}
+              components={{
+                img: ({ node, ...props }) => {
+                  const src = props.src.startsWith('http') ? props.src : (props.src.startsWith('/') ? `${API_BASE}${props.src}` : `${API_BASE}/${props.src}`);
+                  return <img {...props} src={src} alt={props.alt || 'blog image'} />;
+                }
+              }}
+            >
+              {part}
+            </ReactMarkdown>
+          );
+        })}
       </div>
     );
   };
+
 
   return (
     <div className="dashboard-layout">
@@ -974,7 +1162,7 @@ const Dashboard = () => {
                     <EditorContent editor={editor} className="tiptap-editor" />
                   </div>
                 ) : (
-                  renderBlog(generatedBlog?.final || selectedBlog?.content)
+                  renderBlog(generatedBlog?.final || selectedBlog?.content, generatedBlog?.filename || selectedBlog?.filename)
                 )}
               </>
             )}

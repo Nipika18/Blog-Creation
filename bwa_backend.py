@@ -135,9 +135,10 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
             return AIMessage(content="Error: GEMINI_API_KEY is not set.")
 
         try:
-            print(" Generating with Gemini (gemini-2.5-flash)...")
+            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            print(f" Generating with Gemini ({model_name})...")
             llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+                model=model_name,
                 google_api_key=gemini_key,
                 max_output_tokens=max_tokens_limit,
                 temperature=0.7
@@ -441,6 +442,42 @@ def fanout(state: State):
 # -----------------------------
 # WORKER_SYSTEM prompt → see prompts.py
 
+def _clean_reasoning_artifacts(text: str) -> str:
+    """Removes leaked LLM reasoning, word-counting logs, and planning scratchpads from generated text."""
+    if not text:
+        return text
+    
+    # 1. Strip reasoning blocks wrapped in tags like <think>...</think>
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<reasoning>.*?</reasoning>", "", text, flags=re.DOTALL)
+
+    # 2. Filter out meta-reasoning paragraphs/lines
+    lines = text.split("\n")
+    cleaned_lines = []
+    skip_block = False
+
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check if line marks the start of an LLM scratchpad / word count calculation block
+        if re.search(r"^(We must stay within|Let's plan|Let's craft|Interpretation:|Need to count|Paragraph \d+:|Target words|Header line counts|Closing paragraphs:)", stripped, re.IGNORECASE):
+            skip_block = True
+            continue
+        
+        # If inside a skip block, stop skipping when we hit a valid section header or structured bullet
+        if skip_block:
+            if stripped.startswith("## ") or stripped.startswith("### ") or re.match(r"^-\s+(Key concept|Summary|Implications|Conclusion|Definition|Context|Significance)", stripped):
+                skip_block = False
+
+        if not skip_block:
+            # Filter out single reasoning/meta lines
+            if re.search(r"(word count|target words \d+|within ±5%|must not include intros|let's aim for|let's write|let's recalc|let's expand|planning word count|target ~500)", stripped, re.IGNORECASE):
+                continue
+            cleaned_lines.append(line)
+
+    return "\n".join(cleaned_lines).strip()
+
+
 def _is_section_truncated(section_md: str) -> bool:
     """Detect if a section was truncated mid-sentence by the LLM's token limit."""
     stripped = section_md.rstrip()
@@ -455,6 +492,7 @@ def _is_section_truncated(section_md: str) -> bool:
     if last_line.startswith('- ') and len(last_line) > 20:
         return False
     return True
+
 
 def worker_node(payload: dict) -> dict:
     task = Task(**payload["task"])
@@ -483,11 +521,7 @@ def worker_node(payload: dict) -> dict:
         transition_line = f"Some key points about {topic_clean}'s future outlook include:"
         bullet_format = "- Summary: [Overview of future trajectory]\n- Implications: [Impact on industry & society]\n- Conclusion: [Final perspective]"
 
-    # Sequential stagger: wait for Groq's TPM quota to reset between sections
-    if "core" in task_title_lower or "principle" in task_title_lower or "concept" in task_title_lower:
-        time.sleep(8.0)
-    elif "future" in task_title_lower or "outlook" in task_title_lower or "conclusion" in task_title_lower:
-        time.sleep(12.0)
+
 
     prompt_messages = [
         SystemMessage(content=WORKER_SYSTEM),
@@ -537,6 +571,9 @@ def worker_node(payload: dict) -> dict:
         elif header_idx == -1:
             section_md = f"{section_heading}\n\n{section_md}"
 
+        # Clean reasoning scratchpad artifacts from section content
+        section_md = _clean_reasoning_artifacts(section_md)
+
         # Check if section was truncated — if so, retry once
         if _is_section_truncated(section_md) and attempt == 0:
             print(f" Section '{task.title}' appears truncated. Retrying with fallback provider...")
@@ -561,9 +598,13 @@ def merge_content(state: State) -> dict:
     ordered_sections = [md for _, md in sorted(state["sections"], key=lambda x: x[0])]
     body = "\n\n".join(ordered_sections).strip()
     
+    # Clean any reasoning artifacts
+    body = _clean_reasoning_artifacts(body)
+
     # Post-processing to ensure NO links are in the output as requested by user
     # 1. Convert markdown links [text](url) to just 'text'
     body = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", body)
+
     # 2. Remove raw http/https URLs (avoiding those inside code blocks might be tricky, 
     # but the user was very clear: "dont add links")
     body = re.sub(r"https?://\S+", "", body)
@@ -803,15 +844,25 @@ def decide_images(state: State) -> dict:
                 "caption": f"Visual details related to {topic_clean}",
                 "prompt": img2_prompt,
                 "size": "1024x576",
-                "quality": "high",
-                "source_preference": img2_pref
             }
         ]
 
+    # Format placeholders in markdown with prompts for deferred generation
+    formatted_md = md_with_placeholders
+    for spec in image_specs:
+        p_name = spec.get("placeholder", "")
+        prompt_text = spec.get("prompt", "")
+        if p_name and prompt_text and p_name in formatted_md:
+            clean_tag = p_name.strip("[]")
+            formatted_md = formatted_md.replace(p_name, f"[[{clean_tag}: {prompt_text}]]")
+
     return {
-        "md_with_placeholders": md_with_placeholders,
+        "md_with_placeholders": formatted_md,
         "image_specs": image_specs,
+        "final": formatted_md
     }
+
+
 
 
 def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 80) -> bytes:
@@ -834,21 +885,19 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
 
-    # Resize to fit within max dimensions, preserving original aspect ratio (no cropping)
-    img.thumbnail((w, h), Image.Resampling.LANCZOS)
+    # Smart crop to exact 16:9 landscape aspect ratio banner (e.g. 1024x576)
+    img = ImageOps.fit(img, (w, h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
     
     out_io = io.BytesIO()
-    # Save as WebP for best size/quality ratio. Fallback to JPEG if needed.
-    # WebP is widely supported in modern browsers (Streamlit).
     try:
         img.save(out_io, format="WEBP", quality=quality, method=6)
     except Exception:
-        # Fallback to JPEG if WEBP is not available in the Pillow installation
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
         img.save(out_io, format="JPEG", quality=quality, optimize=True)
         
     return out_io.getvalue()
+
 # 
 # 
 def _fetch_fallback_image_bytes(keywords: str, size: str = "512x512") -> bytes:
@@ -876,9 +925,134 @@ def _fetch_fallback_image_bytes(keywords: str, size: str = "512x512") -> bytes:
             return response.read()
     except Exception as e:
         raise RuntimeError(f"Fallback image fetch failed: {e}")
-# 
-# 
+
+
+def _fetch_pollinations_image_bytes(prompt: str, size: str = "1024x576", model: str = "flux") -> bytes:
+    """
+    Generates an AI image using Pollinations AI service (FLUX.1 / SDXL models).
+    """
+    import urllib.parse
+    import secrets
+    import requests
+
+    try:
+        w, h = map(int, size.split("x"))
+    except Exception:
+        w, h = 1024, 576
+
+    encoded_prompt = urllib.parse.quote(prompt)
+    seed = secrets.randbelow(1000000)
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={w}&height={h}&model={model}&nologo=true&seed={seed}"
+    
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers, timeout=20)
+    response.raise_for_status()
+    if "image" not in response.headers.get("Content-Type", "").lower():
+        raise ValueError("Pollinations returned non-image response")
+    return response.content
+
+
+def _fetch_imagen_image_bytes(prompt: str) -> Optional[bytes]:
+    """Generates an AI image using Google's Imagen 3 model via GEMINI_API_KEY."""
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_key:
+        return None
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key={gemini_key}"
+        payload = {
+            "prompt": prompt[:1000],
+            "numberOfImages": 1,
+            "aspectRatio": "16:9",
+            "outputMimeType": "image/jpeg"
+        }
+        resp = requests.post(url, json=payload, timeout=20)
+        if resp.status_code == 200:
+            data = resp.json()
+            images = data.get("generatedImages", [])
+            if images and "image" in images[0] and "imageBytes" in images[0]["image"]:
+                import base64
+                return base64.b64decode(images[0]["image"]["imageBytes"])
+        else:
+            print(f" Google Imagen 3 API status {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        print(f" Google Imagen 3 fetch failed: {e}")
+    return None
+
+
+def generate_single_image_bytes(prompt: str, topic: str = "", size: str = "1024x576") -> bytes:
+    """
+    Generates 100% copyright-safe AI images using FLUX.1, Google Imagen 3, SDXL, or FLUX Realism.
+    """
+    import io
+    from PIL import Image
+
+    full_prompt = f"{prompt} {topic}".strip() if topic and topic.lower() not in prompt.lower() else prompt
+    img_bytes = None
+
+    # 1. Primary: FLUX.1 / SDXL (Pollinations AI - Fast, 100% Free, High Quality)
+    try:
+        print(f" Generating primary AI image with FLUX.1: '{full_prompt}'")
+        img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="flux")
+    except Exception as e:
+        print(f" FLUX.1 generation failed: {e}")
+
+    # 2. Fallback 1: Google Imagen 3 (via GEMINI_API_KEY)
+    if not img_bytes:
+        try:
+            print(f" Trying Google Imagen 3 fallback for prompt: '{full_prompt}'")
+            img_bytes = _fetch_imagen_image_bytes(full_prompt)
+        except Exception as e:
+            print(f" Google Imagen 3 generation failed: {e}")
+
+    # 3. Fallback 2: Stable Diffusion XL (SDXL - 100% Free Open-Source AI)
+    if not img_bytes:
+        try:
+            print(f" Trying Stable Diffusion XL (SDXL) for prompt: '{full_prompt}'")
+            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="sdxl")
+        except Exception as e:
+            print(f" SDXL generation failed: {e}")
+
+    # 4. Fallback 3: FLUX Realism (Photorealistic Open-Source AI)
+    if not img_bytes:
+        try:
+            print(f" Trying FLUX Realism for prompt: '{full_prompt}'")
+            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="flux-realism")
+        except Exception as e:
+            print(f" FLUX Realism generation failed: {e}")
+
+    # 5. Fallback 4: SD Turbo Model
+    if not img_bytes:
+        try:
+            print(f" Trying Pollinations Turbo model for prompt: '{full_prompt}'")
+            img_bytes = _fetch_pollinations_image_bytes(full_prompt, size, model="turbo")
+        except Exception as e:
+            print(f" Pollinations Turbo failed: {e}")
+
+
+
+
+
+
+    # 3. Fallback to royalty-free placeholder generator
+    if not img_bytes:
+        try:
+            print(f" Trying royalty-free fallback for prompt: '{prompt}'")
+            img_bytes = _fetch_fallback_image_bytes(prompt, size)
+        except Exception as e:
+            print(f" Fallback image generator failed: {e}")
+
+    if img_bytes:
+        try:
+            img_bytes = _resize_image_bytes(img_bytes, size, quality=80)
+        except Exception as ree:
+            print(f" Image resize failed: {ree}")
+
+    return img_bytes
+
+
+
 def _search_real_image_url(query: str) -> Optional[list]:
+
     """
     Searches for a real image URL using Tavily.
     """
@@ -917,6 +1091,9 @@ def _download_image_bytes(url: str) -> bytes:
     }
     response = requests.get(url, headers=headers, timeout=5)
     response.raise_for_status()
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "text" in content_type or "html" in content_type:
+        raise ValueError(f"URL returned HTML text ({content_type}) instead of an image file")
     return response.content
 
 
@@ -997,11 +1174,15 @@ def generate_and_place_images(state: State) -> dict:
                 if img_urls:
                     for img_url in img_urls:
                         try:
-                            img = _download_image_bytes(img_url)
-                            if img:
-                                break
+                            downloaded = _download_image_bytes(img_url)
+                            # Verify valid image bytes using PIL
+                            test_io = io.BytesIO(downloaded)
+                            with Image.open(test_io) as test_img:
+                                test_img.verify()
+                            img = downloaded
+                            break
                         except Exception as dl_e:
-                            print(f"   Failed to download {img_url}: {dl_e}")
+                            print(f"   Failed or invalid image from {img_url}: {dl_e}")
             except Exception as e:
                 print(f" Tavily Search failed for {placeholder}: {e}")
             return img
@@ -1014,11 +1195,14 @@ def generate_and_place_images(state: State) -> dict:
                 if img_urls:
                     for img_url in img_urls:
                         try:
-                            img = _download_image_bytes(img_url)
-                            if img:
-                                break
+                            downloaded = _download_image_bytes(img_url)
+                            test_io = io.BytesIO(downloaded)
+                            with Image.open(test_io) as test_img:
+                                test_img.verify()
+                            img = downloaded
+                            break
                         except Exception as dl_e:
-                            print(f"   Failed to download {img_url}: {dl_e}")
+                            print(f"   Failed or invalid image from {img_url}: {dl_e}")
             except Exception as e:
                 print(f" Outscraper Search failed for {placeholder}: {e}")
             return img
@@ -1031,6 +1215,14 @@ def generate_and_place_images(state: State) -> dict:
         if not img_bytes:
             print(f" Tavily web search failed, trying Outscraper web search for '{placeholder}'...")
             img_bytes = _try_outscraper_search()
+
+        # If web search returned no valid images, try fallback image generator
+        if not img_bytes:
+            print(f" Web image search returned no valid images for '{placeholder}'. Using fallback image generator...")
+            try:
+                img_bytes = _fetch_fallback_image_bytes(spec["prompt"], target_size)
+            except Exception as fe:
+                print(f" Fallback image generator failed: {fe}")
 
         # 4. Resize and Optimize
         if img_bytes:
@@ -1068,15 +1260,13 @@ def generate_and_place_images(state: State) -> dict:
 
     return {"final": final_md, "generated_images": generated_images}
 
-# build reducer subgraph
+# build reducer subgraph (deferred image placeholders)
 reducer_graph = StateGraph(State)
 reducer_graph.add_node("merge_content", merge_content)
 reducer_graph.add_node("decide_images", decide_images)
-reducer_graph.add_node("generate_and_place_images", generate_and_place_images)
 reducer_graph.add_edge(START, "merge_content")
 reducer_graph.add_edge("merge_content", "decide_images")
-reducer_graph.add_edge("decide_images", "generate_and_place_images")
-reducer_graph.add_edge("generate_and_place_images", END)
+reducer_graph.add_edge("decide_images", END)
 reducer_subgraph = reducer_graph.compile()
 
 # -----------------------------

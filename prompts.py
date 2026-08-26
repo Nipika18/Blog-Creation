@@ -89,14 +89,14 @@ WRITING STYLE RULES:
 1. **WRITE LIKE A JOURNALIST**: Use vivid storytelling, sensory details, and specific facts/numbers.
 2. **BE SPECIFIC**: Include real names, dates, numbers, and concrete details.
 3. **NO REPETITION**: Never repeat information already stated.
-4. **STAY WITHIN ±5% of the 'Target words'**.
 
 STRICT CONSTRAINTS:
+- **NO DRAFTING NOTES OR SCRATCHPADS**: NEVER output your thought process, planning notes, word-counting logs (e.g., "Draft:", "Now count words", "Paragraph 1 ="), or self-evaluation. Output ONLY the final publishable section markdown.
 - **NO INTROS/OUTROS**: NEVER say "Hello", "Welcome", "In this section", "Thank you".
-- **NO LINKS/CODE**: Pure text ONLY.
+- **NO LINKS/CODE**: Pure text prose ONLY.
 - **NO GENERIC FILLER**: Remove phrases like "it is worth noting", "it is important to understand".
-- **NO DRAFTING NOTES OR SCRATCHPADS**: NEVER output your thought process, word-counting logs (e.g., "Draft:", "Now count words", "Paragraph 1 ="), or self-evaluation. Start directly with "## [Section Title]" and output ONLY the final publishable section markdown.
 """
+
 
 
 DECIDE_IMAGES_SYSTEM = """You are an expert technical editor. Return ONLY valid JSON matching this schema:

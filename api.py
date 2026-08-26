@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
@@ -336,14 +336,96 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
 </html>"""
     return HTMLResponse(content=html)
 
+class BlogImageGenerateRequest(BaseModel):
+    placeholder: str
+    prompt: Optional[str] = None
+
+@app.post("/blog/{filename}/generate-image")
+async def generate_blog_image(
+    filename: str,
+    req: BlogImageGenerateRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    blog = db.query(models.Blog).filter(
+        models.Blog.filename == filename,
+        models.Blog.user_id == current_user.id
+    ).first()
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    prompt = req.prompt
+    placeholder = req.placeholder
+
+    if not prompt and ":" in placeholder:
+        parts = placeholder.split(":", 1)
+        prompt = parts[1].rstrip("]").strip()
+
+    if not prompt:
+        prompt = blog.title
+
+    from bwa_backend import generate_single_image_bytes
+    try:
+        img_bytes = generate_single_image_bytes(prompt, topic=blog.title)
+    except Exception as e:
+        print(f"Single image generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+
+    if not img_bytes:
+        raise HTTPException(status_code=500, detail="Could not generate image for this prompt.")
+
+    image_filename = f"{secrets.token_hex(8)}_ai.webp"
+    db_image = models.BlogImage(
+        filename=image_filename,
+        content=img_bytes,
+        blog_id=blog.id
+    )
+    db.add(db_image)
+
+    # Replace placeholder tag in content with image markdown
+    alt_text = prompt[:50]
+    img_md = f"\n\n![{alt_text}](images/{image_filename})\n\n"
+
+    content = blog.content
+    num_match = re.search(r"\d+", placeholder)
+    if num_match:
+        num = num_match.group(0)
+        pattern = rf"\[+IMAGE_?(?:PLACEHOLDER_)?{num}(?:\:[^\]]+)?\]+"
+        content = re.sub(pattern, img_md, content, count=1)
+    elif placeholder in content:
+        content = content.replace(placeholder, img_md)
+
+    blog.content = content
+    db.commit()
+
+    return {
+        "success": True,
+        "url": f"/images/{image_filename}",
+        "filename": image_filename,
+        "updated_content": blog.content
+    }
+
 @app.post("/blog/{filename}/upload-image")
-async def upload_blog_image(filename: str, image: UploadFile = File(...), db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+async def upload_blog_image(
+    filename: str, 
+    image: UploadFile = File(...), 
+    placeholder: Optional[str] = Form(None),
+    db: Session = Depends(database.get_db), 
+    current_user: models.User = Depends(get_current_user)
+):
     blog = db.query(models.Blog).filter(models.Blog.filename == filename, models.Blog.user_id == current_user.id).first()
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
     
     content = await image.read()
-    image_filename = f"{secrets.token_hex(8)}_{image.filename}"
+    try:
+        from bwa_backend import _resize_image_bytes
+        content = _resize_image_bytes(content, "1024x576", quality=85)
+    except Exception:
+        pass
+
+    ext = os.path.splitext(image.filename)[1].lower() or ".webp"
+    image_filename = f"{secrets.token_hex(8)}{ext}"
     
     db_image = models.BlogImage(
         filename=image_filename,
@@ -351,9 +433,28 @@ async def upload_blog_image(filename: str, image: UploadFile = File(...), db: Se
         blog_id=blog.id
     )
     db.add(db_image)
+
+    # Replace placeholder if provided
+    img_md = f"\n\n![Uploaded Image](images/{image_filename})\n\n"
+    if placeholder:
+        num_match = re.search(r"\d+", placeholder)
+        if num_match:
+            num = num_match.group(0)
+            pattern = rf"\[+IMAGE_?(?:PLACEHOLDER_)?{num}(?:\:[^\]]+)?\]+"
+            blog.content = re.sub(pattern, img_md, blog.content, count=1)
+        elif placeholder in blog.content:
+            blog.content = blog.content.replace(placeholder, img_md)
+
+
     db.commit()
     
-    return {"url": f"/images/{image_filename}"}
+    return {
+        "success": True,
+        "url": f"/images/{image_filename}",
+        "filename": image_filename,
+        "updated_content": blog.content
+    }
+
 
 @app.post("/signup", response_model=Token)
 def signup(user: UserCreate, db: Session = Depends(database.get_db)):
