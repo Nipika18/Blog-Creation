@@ -37,7 +37,9 @@ import {
   Copy,
   Sparkles,
   Upload,
-  Loader2
+  Loader2,
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
@@ -313,6 +315,85 @@ const CustomTextStyle = TextStyle.extend({
     };
   },
 })
+
+const BlogImageWrapper = ({ src, alt, filename, onImageUpdated }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  // Extract the image filename from the src (e.g., "images/abc123_ai.webp" → "abc123_ai.webp")
+  const imageFile = src.replace(/^.*\/images\//, '').replace(/^images\//, '');
+
+  const handleRegenerate = async () => {
+    if (!filename || !imageFile) return;
+    setIsRegenerating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_BASE}/blog/${filename}/regenerate-image`, {
+        image_filename: imageFile
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.updated_content) {
+        onImageUpdated(res.data.updated_content);
+      }
+    } catch (err) {
+      console.error('Image regeneration failed', err);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!filename || !imageFile) return;
+    setIsRemoving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`${API_BASE}/blog/${filename}/remove-image`, {
+        image_filename: imageFile
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.updated_content) {
+        onImageUpdated(res.data.updated_content);
+      }
+    } catch (err) {
+      console.error('Image removal failed', err);
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+
+  return (
+    <div
+      className="blog-image-wrapper"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <img src={src} alt={alt || 'blog image'} />
+      {isHovered && !isRegenerating && !isRemoving && (
+        <div className="blog-image-overlay">
+          <button className="img-overlay-btn btn-regenerate" onClick={handleRegenerate} title="Generate a new image">
+            <RefreshCw size={16} />
+            <span>Regenerate</span>
+          </button>
+          <button className="img-overlay-btn btn-remove" onClick={handleRemove} title="Remove image and go back to placeholder">
+            <Trash2 size={16} />
+            <span>Remove</span>
+          </button>
+        </div>
+      )}
+      {(isRegenerating || isRemoving) && (
+        <div className="blog-image-overlay">
+          <div className="img-overlay-loading">
+            <Loader2 className="animate-spin" size={22} />
+            <span>{isRegenerating ? 'Regenerating...' : 'Removing...'}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ImagePlaceholderCard = ({ placeholderTag, index, prompt, filename, onImageUpdated }) => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -594,7 +675,7 @@ const Dashboard = () => {
     }
   };
 
-  const fetchPastBlogs = async () => {
+  const fetchPastBlogs = async (preventRestore = false) => {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
@@ -603,9 +684,9 @@ const Dashboard = () => {
       });
       setPastBlogs(res.data);
       
-      // Auto-restore open blog after page refresh
+      // Auto-restore open blog after page refresh, but only if not prevented
       const activeFilename = localStorage.getItem('activeBlogFilename');
-      if (activeFilename) {
+      if (activeFilename && !preventRestore) {
         loadBlogByFilename(activeFilename, res.data);
       }
     } catch (err) {
@@ -638,7 +719,7 @@ const Dashboard = () => {
       if (res.data.filename) {
         localStorage.setItem('activeBlogFilename', res.data.filename);
       }
-      fetchPastBlogs();
+      fetchPastBlogs(true);
     } catch (err) {
       setError('Generation failed. Please try again.');
       console.error(err);
@@ -847,7 +928,7 @@ const Dashboard = () => {
     if (selectedBlog) {
       setSelectedBlog(prev => prev ? ({ ...prev, content: newContent }) : null);
     }
-    fetchPastBlogs();
+    fetchPastBlogs(true);
   };
 
   const renderBlog = (content, filename) => {
@@ -870,7 +951,7 @@ const Dashboard = () => {
             components={{
               img: ({ node, ...props }) => {
                 const src = props.src.startsWith('http') ? props.src : (props.src.startsWith('/') ? `${API_BASE}${props.src}` : `${API_BASE}/${props.src}`);
-                return <img {...props} src={src} alt={props.alt || 'blog image'} />;
+                return <BlogImageWrapper src={src} alt={props.alt} filename={filename} onImageUpdated={handleImageUpdated} />;
               }
             }}
           >
@@ -906,7 +987,7 @@ const Dashboard = () => {
               components={{
                 img: ({ node, ...props }) => {
                   const src = props.src.startsWith('http') ? props.src : (props.src.startsWith('/') ? `${API_BASE}${props.src}` : `${API_BASE}/${props.src}`);
-                  return <img {...props} src={src} alt={props.alt || 'blog image'} />;
+                  return <BlogImageWrapper src={src} alt={props.alt} filename={filename} onImageUpdated={handleImageUpdated} />;
                 }
               }}
             >

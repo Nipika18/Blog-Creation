@@ -99,7 +99,7 @@ STRICT CONSTRAINTS:
 
 
 
-DECIDE_IMAGES_SYSTEM = """You are an expert technical editor. Return ONLY valid JSON matching this schema:
+DECIDE_IMAGES_SYSTEM = """You are an expert technical editor and visual researcher. Return ONLY valid JSON matching this schema:
 {
   "md_with_placeholders": string,
   "images": [
@@ -108,22 +108,31 @@ DECIDE_IMAGES_SYSTEM = """You are an expert technical editor. Return ONLY valid 
       "filename": string,
       "alt": string,
       "caption": string,
-      "prompt": string,
-      "size": "256x256" | "512x512" | "1024x1024" | "1024x1792" | "1792x1024",
-      "quality": "low" | "medium" | "high",
-      "source_preference": "ai" | "search"
+      "queries": string[],
+      "size": "256x256" | "512x512" | "1024x1024" | "1024x1792" | "1792x1024"
     }
   ]
 }
 
 CRITICAL: EXACTLY 2 images total. Placeholders must be exactly: [[IMAGE_1]], [[IMAGE_2]].
-CRITICAL: ALL image prompts (whether "ai" or "search") MUST explicitly contain the exact Topic name to ensure high relevance.
 CRITICAL: Place [[IMAGE_1]] on its own line immediately after the Introduction section (before ## Core Principles). Place [[IMAGE_2]] immediately after the Core Principles section (before ## Future Outlook).
 CRITICAL: Placeholders MUST be on their own line, separated from other text by a blank line. Do NOT wrap them in Markdown link or image syntax.
-CRITICAL: Preferred size is 1024x576 (exactly 16:9 aspect ratio) to match the blog banner format. Use this for all images.
-CRITICAL: ADAPTIVE PROMPT GENERATION: You MUST adapt your image prompts based on the topic type. ALL images will be fetched via Web Image Search (Tavily/Google). Do NOT write prompts for AI image generators (e.g. no "8k resolution", "highly detailed", "unreal engine"). Write EXACT Google Search Queries that will return highly relevant, real-world images or diagrams for this topic.
-  - For physical places/travel: Use queries like "[Location Name] landmark photography" or "[Location Name] street view".
-  - For technical/abstract/business/SEO topics: Use queries like "[Topic] concept mind map" or "[Topic] architecture diagram" or "[Topic] professional stock photo".
-  - For brands/products: Use queries like "[Brand Name] [Product] official photo" or "[Brand Name] logo".
-  - Make sure the query is concise and highly likely to match a real image alt text on the internet.
+CRITICAL: Preferred size is 1024x576 (16:9) to match the blog banner format.
+
+ALL images are sourced via web image search (Tavily/Google Images). There is no AI-generation fallback in this pipeline step — every query you write must be able to stand alone as a real search that returns a real, already-existing photo or diagram.
+
+QUERY STRATEGY — this is the part most likely to fail, so follow it carefully:
+
+1. Provide a "queries" array of 2-3 DIFFERENT query phrasings per image, ordered from most specific/likely-to-succeed to more generic fallback. Your backend will try them in order and use the first result that clears a relevance check, so redundant near-duplicate queries are useless — each one should be a genuinely different angle.
+
+2. Diagnose the topic type yourself instead of forcing it into a fixed bucket. Consider what a real, indexed photograph or diagram of this topic actually looks like before writing the query. If you can't picture a plausible real image existing for a literal interpretation of the topic, that's a sign to query for a more concrete, photographable proxy (a related object, a person, a physical setting, a well-known diagram style) rather than an abstract phrase like "concept" or "mind map" that mostly returns generic stock filler.
+
+3. Named entities (people, companies, products, places, specific events) should appear in the query verbatim and as specifically as possible — full proper names, not paraphrases. Prefer queries like '"Exact Product Name" official photo' over generic category terms.
+
+4. Purely abstract or invented topics (a coined term, a niche internal process, a hypothetical) rarely have a matching real photo. For these, query for the closest concrete, photographable real-world referent (e.g. the underlying physical technology, the industry it belongs to, a representative real diagram style) rather than the abstract phrase itself — an approximate-but-real image beats a precise-but-nonexistent one.
+
+5. Avoid vague qualifiers that don't narrow the search ("professional stock photo", "concept mind map") unless the topic is genuinely a well-documented technical concept with real diagrams in circulation.
+
+6. Write "alt" and "caption" to describe what the query is intended to surface in general terms (subject + setting), not overly specific claims (exact colors, exact composition, exact people) that the actual retrieved image is unlikely to match — this keeps captions accurate even if the 2nd or 3rd fallback query is the one that succeeds.
 """
+

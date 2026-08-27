@@ -9,7 +9,7 @@ The Blog Writing Agent (BWA) is an autonomous, AI-powered blog generation platfo
 - **Autonomous Agentic Pipeline:** A directed acyclic graph (DAG) workflow that routes tasks through specialized AI agents (Research, Orchestration, Drafting, and Merging).
 - **Dynamic Research Integration:** Automatically queries external search indexes to ground the content in real-world, up-to-date information when topics demand it.
 - **Multi-Tier LLM Resilience:** A cascading failover system that gracefully degrades across multiple LLM providers (e.g., from primary reasoning models to local/offline models) to ensure continuous operation despite API rate limits or failures.
-- **Intelligent Media Sourcing:** An automated image planning system that proposes, searches, and places 100% real, contextually relevant visual assets from the web (via Tavily & Outscraper).
+- **AI Image Generation:** A custom AI image generation pipeline utilizing **OpenAI DALL-E 3** and **Google Gemini (Imagen)** for stunning original illustrations.
 - **Native LinkedIn Publishing:** One-click integration to publish your generated blogs directly to your LinkedIn feed as rich "Article" cards with auto-generated hashtags and cover images.
 - **Responsive Public Sharing:** Instantly generate clean, responsive, read-only public URLs to share your blogs across any device.
 - **Rich-Text Workspace:** A seamless transition from AI generation to human editing, providing a full WYSIWYG interface for final editorial polishing.
@@ -20,7 +20,7 @@ The Blog Writing Agent (BWA) is an autonomous, AI-powered blog generation platfo
 - **Backend Application Layer:** Asynchronous REST API framework for non-blocking task execution (FastAPI).
 - **Client Interface:** Reactive single-page application framework for handling dynamic UI states and rich-text editing (React, TipTap).
 - **Persistence Layer:** Relational database for ACID-compliant storage of user identities, document metadata, and binary media assets (Neon PostgreSQL / SQLAlchemy).
-- **Inference & Search:** Abstraction layers connecting to various Large Language Models and external web search APIs (LangChain, OpenAI, Gemini, Groq, Tavily, Outscraper).
+- **Inference & Search:** Abstraction layers connecting to various Large Language Models and external web search APIs (LangChain, OpenAI, Gemini, Groq, Cloudflare AI, Pollinations, Tavily, Outscraper).
 
 ## Usage
 

@@ -405,6 +405,102 @@ async def generate_blog_image(
         "updated_content": blog.content
     }
 
+
+class BlogImageActionRequest(BaseModel):
+    image_filename: str
+
+
+@app.post("/blog/{filename}/remove-image")
+async def remove_blog_image(
+    filename: str,
+    req: BlogImageActionRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Remove a generated image and restore the placeholder so user can regenerate or upload."""
+    blog = db.query(models.Blog).filter(
+        models.Blog.filename == filename,
+        models.Blog.user_id == current_user.id
+    ).first()
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    # Find the image markdown pattern: ![alt text](images/xxx.webp) or ![alt](images/xxx.webp)
+    img_pattern = rf'\n*!\[[^\]]*\]\([^)]*{re.escape(req.image_filename)}[^)]*\)\n*'
+    match = re.search(img_pattern, blog.content)
+    if not match:
+        raise HTTPException(status_code=404, detail="Image not found in blog content")
+
+    # Determine which image slot this was (count image markdowns before this one)
+    preceding_content = blog.content[:match.start()]
+    existing_images = re.findall(r'!\[[^\]]*\]\([^)]+\)', preceding_content)
+    slot_num = len(existing_images) + 1
+
+    # Restore the placeholder tag
+    placeholder_tag = f"[[IMAGE_{slot_num}: {blog.title}]]"
+    blog.content = blog.content[:match.start()] + f"\n\n{placeholder_tag}\n\n" + blog.content[match.end():]
+    db.commit()
+
+    return {
+        "success": True,
+        "updated_content": blog.content
+    }
+
+
+@app.post("/blog/{filename}/regenerate-image")
+async def regenerate_blog_image(
+    filename: str,
+    req: BlogImageActionRequest,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Replace an existing generated image with a newly generated one."""
+    blog = db.query(models.Blog).filter(
+        models.Blog.filename == filename,
+        models.Blog.user_id == current_user.id
+    ).first()
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    # Find the image markdown
+    img_pattern = rf'!\[[^\]]*\]\([^)]*{re.escape(req.image_filename)}[^)]*\)'
+    match = re.search(img_pattern, blog.content)
+    if not match:
+        raise HTTPException(status_code=404, detail="Image not found in blog content")
+
+    # Extract the alt text as prompt
+    alt_match = re.search(r'!\[([^\]]*)\]', match.group(0))
+    prompt = alt_match.group(1) if alt_match else blog.title
+
+    from bwa_backend import generate_single_image_bytes
+    try:
+        img_bytes = generate_single_image_bytes(prompt, topic=blog.title)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image regeneration failed: {str(e)}")
+
+    if not img_bytes:
+        raise HTTPException(status_code=500, detail="Could not regenerate image.")
+
+    new_image_filename = f"{secrets.token_hex(8)}_ai.webp"
+    db_image = models.BlogImage(
+        filename=new_image_filename,
+        content=img_bytes,
+        blog_id=blog.id
+    )
+    db.add(db_image)
+
+    # Replace old image markdown with new one
+    new_img_md = f"![{prompt[:50]}](images/{new_image_filename})"
+    blog.content = blog.content[:match.start()] + new_img_md + blog.content[match.end():]
+    db.commit()
+
+    return {
+        "success": True,
+        "url": f"/images/{new_image_filename}",
+        "filename": new_image_filename,
+        "updated_content": blog.content
+    }
+
 @app.post("/blog/{filename}/upload-image")
 async def upload_blog_image(
     filename: str, 

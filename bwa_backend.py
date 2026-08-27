@@ -135,7 +135,7 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
             return AIMessage(content="Error: GEMINI_API_KEY is not set.")
 
         try:
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
             print(f" Generating with Gemini ({model_name})...")
             llm = ChatGoogleGenerativeAI(
                 model=model_name,
@@ -541,13 +541,11 @@ def worker_node(payload: dict) -> dict:
         ),
     ]
 
-    # Try up to 2 attempts — if first attempt is truncated, retry with Pollinations
+    # Try up to 2 attempts — retry on truncation
     section_md = ""
     for attempt in range(2):
-        provider = "pollinations" if attempt > 0 else None
         worker_llm = get_llm_chain(
             static_fallback=AIMessage(content=f"{section_heading}\n\nContent generation failed for this section due to total LLM quota exhaustion. Please try again later."),
-            force_provider=provider
         )
         res = worker_llm.invoke(prompt_messages)
 
@@ -898,96 +896,117 @@ def _resize_image_bytes(img_bytes: bytes, target_size_str: str, quality: int = 8
         
     return out_io.getvalue()
 
-# 
-# 
-def _fetch_fallback_image_bytes(keywords: str, size: str = "1024x576") -> bytes:
-    """
-    Fetches a high-quality curated stock banner image (Unsplash API).
-    """
-    import urllib.request
-    import urllib.parse
-    
-    clean_kws = re.sub(r"[^a-zA-Z0-9 ]", "", keywords)
-    terms = [w for w in clean_kws.split() if len(w) > 2]
-    search_term = ",".join(terms[:3]) or "technology,abstract"
-    
-    url = f"https://source.unsplash.com/1024x576/?{urllib.parse.quote(search_term)}"
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return response.read()
-    except Exception:
-        # Emergency backup high-res technology banner
-        fallback_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1024&h=576&fit=crop"
-        req = urllib.request.Request(fallback_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return response.read()
 
 
-def _fetch_pollinations_image_bytes(prompt: str, size: str = "1024x576", model: str = "flux") -> bytes:
+
+
+def _fetch_gemini_image_bytes(prompt: str, size: str = "1024x576") -> Optional[bytes]:
     """
-    Generates an AI image using Pollinations AI service (FLUX.1 / SDXL models).
+    Generates raw image bytes using Google Gemini Image API (Gemini Pro Image / Flash Image).
+    Env vars: GEMINI_API_KEY, GEMINI_IMAGE_MODELS
     """
-    import urllib.parse
-    import secrets
     import requests
+    import os
+    import base64
 
-    try:
-        w, h = map(int, size.split("x"))
-    except Exception:
-        w, h = 1024, 576
-
-    encoded_prompt = urllib.parse.quote(prompt)
-    seed = secrets.randbelow(1000000)
-    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={w}&height={h}&model={model}&nologo=true&seed={seed}"
-    
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, timeout=20)
-    response.raise_for_status()
-    if "image" not in response.headers.get("Content-Type", "").lower():
-        raise ValueError("Pollinations returned non-image response")
-    return response.content
-
-
-def _fetch_imagen_image_bytes(prompt: str) -> Optional[bytes]:
-    """Generates an AI image using Google's Imagen 3 model via GEMINI_API_KEY."""
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    if not gemini_key:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
         return None
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:generateImages?key={gemini_key}"
-        payload = {
-            "prompt": prompt[:1000],
-            "numberOfImages": 1,
-            "aspectRatio": "16:9",
-            "outputMimeType": "image/jpeg"
-        }
-        resp = requests.post(url, json=payload, timeout=20)
-        if resp.status_code == 200:
-            data = resp.json()
-            images = data.get("generatedImages", [])
-            if images and "image" in images[0] and "imageBytes" in images[0]["image"]:
-                import base64
-                return base64.b64decode(images[0]["image"]["imageBytes"])
-        else:
-            print(f" Google Imagen 3 API status {resp.status_code}: {resp.text[:200]}")
-    except Exception as e:
-        print(f" Google Imagen 3 fetch failed: {e}")
+
+    # Read configured models from env var or use defaults
+    models_raw = os.environ.get("GEMINI_IMAGE_MODELS", "gemini-3-pro-image,gemini-3.1-flash-image,gemini-2.5-flash-image")
+    models_to_try = [m.strip() for m in models_raw.split(",") if m.strip()]
+
+    for model_name in models_to_try:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt[:1000]}]}],
+                "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}
+            }
+            print(f"  🎨 Generating image with Gemini AI ({model_name})...")
+            resp = requests.post(url, json=payload, timeout=35)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    for part in parts:
+                        if "inlineData" in part and "data" in part["inlineData"]:
+                            return base64.b64decode(part["inlineData"]["data"])
+            else:
+                print(f"  ❌ Gemini Image API ({model_name}) returned ({resp.status_code}): {resp.text[:150]}")
+        except Exception as e:
+            print(f"  ❌ Gemini image generation error for {model_name}: {e}")
+
     return None
 
 
+def _fetch_openai_image_bytes(prompt: str, size: str = "1024x576") -> Optional[bytes]:
+    """
+    Generates raw image bytes using OpenAI DALL-E.
+    Env vars: OPENAI_API_KEY, OPENAI_IMAGE_MODEL
+    """
+    import requests
+    import os
+    import base64
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return None
+
+    model_name = os.environ.get("OPENAI_IMAGE_MODEL", "dall-e-3")
+
+    try:
+        url = "https://api.openai.com/v1/images/generations"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model_name,
+            "prompt": prompt[:1000],
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "b64_json"
+        }
+        print(f"  🎨 Generating image with OpenAI ({model_name})...")
+        resp = requests.post(url, headers=headers, json=payload, timeout=45)
+        if resp.status_code == 200:
+            data = resp.json()
+            b64_data = data["data"][0]["b64_json"]
+            return base64.b64decode(b64_data)
+        else:
+            print(f"  ❌ OpenAI ({model_name}) failed ({resp.status_code}): {resp.text[:200]}")
+    except Exception as e:
+        print(f"  ❌ OpenAI ({model_name}) error: {e}")
+
+    return None
+
+
+
+
+
+
+
+
 def _build_dynamic_image_prompt(prompt: str, topic: str = "") -> str:
-    """Uses LLM to dynamically generate an ideal, professional image prompt for ANY topic."""
+    """Uses LLM to dynamically generate an ideal image prompt for ANY topic."""
     from langchain_core.messages import SystemMessage, HumanMessage
     
+    # Pre-clean raw input (strip placeholder tags & positional text)
+    clean_p = re.sub(r"\[\[.*?\]\]", "", prompt)
+    clean_p = re.sub(r"(?i)\b(place|placeholder|introduction|section|immediately|after|before|image_\d+)\b", "", clean_p)
+    clean_p = re.sub(r"\s+", " ", clean_p).strip()
+    
     system_prompt = (
-        "You are an expert AI image prompt engineer for professional blog banners.\n"
-        "Given a topic and image placeholder description, write a single concise 16:9 banner image prompt (max 30 words).\n\n"
-        "STRICT GUIDELINES:\n"
-        "1. For AI / Software / Tech topics: Request a 'flat vector technology illustration' or 'sleek 3D digital vector art' with vibrant colors and clear concepts.\n"
-        "2. For Travel / Nature / Places topics: Request 'professional editorial photography, scenic landscape, cinematic lighting, photorealistic'.\n"
-        "3. For Business / Finance / Education topics: Request a 'clean modern corporate vector graphic' or 'minimalist editorial illustration'.\n"
-        "4. NEVER request grid split-screens, multi-panels, unreadable text, or low-quality clipart.\n\n"
+        "You are an expert AI image prompt engineer for professional blog photography and art.\n"
+        "Given a topic and image placeholder description, write a single concise 16:9 banner prompt (max 25 words) describing a concrete, physical, photographable scene.\n\n"
+        "STRICT RULES:\n"
+        "1. NEVER use abstract words like 'concept', 'principles', 'overview', 'outlook', 'mindset', or 'strategy'.\n"
+        "2. ALWAYS describe a concrete physical scene (e.g. 'A sleek laptop showing code on a modern desk with ambient neon lighting', or 'futuristic glass server room with glowing blue fiber optics').\n"
+        "3. Do NOT request any text, labels, words, diagrams, or split screens.\n"
+        "4. DO NOT request human faces or portraits of people.\n"
         "Return ONLY the image prompt string, nothing else."
     )
     
@@ -995,184 +1014,50 @@ def _build_dynamic_image_prompt(prompt: str, topic: str = "") -> str:
         chain = get_llm_chain()
         res = chain.invoke([
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Topic: {topic}\nPlaceholder: {prompt}")
+            HumanMessage(content=f"Topic: {topic}\nPlaceholder Context: {clean_p or topic}")
         ])
         if hasattr(res, "content") and isinstance(res.content, str) and len(res.content.strip()) > 10:
             cleaned = res.content.strip().replace('"', '').replace('\n', ' ')
-            return cleaned
+            if "content generation failed" not in cleaned.lower():
+                return cleaned
     except Exception as e:
         print(f" Dynamic prompt LLM generation failed: {e}")
         
-    # Fallback if LLM call is unavailable
-    base_prompt = f"{prompt} {topic}".strip() if topic and topic.lower() not in prompt.lower() else prompt
-    return f"professional editorial graphic of {base_prompt}, high resolution 16:9 banner, 8k, photorealistic"
+    # Purely dynamic fallback if LLM call is unavailable
+    subject = clean_p or topic or "technology"
+    clean_subject = re.sub(r"(?i)\b(image|banner|placeholder|queries|concept|principles|overview|outlook|strategy|mindset|section|introduction)\b", "", subject).strip()
+    clean_subject = re.sub(r"\s+", " ", clean_subject).strip() or "modern technology"
+    return f"High quality editorial 16:9 banner photography of {clean_subject}, clean modern studio lighting, high resolution, no human face, no text"
+
 
 
 def generate_single_image_bytes(prompt: str, topic: str = "", size: str = "1024x576") -> bytes:
     """
-    Generates 100% professional, safe, high-resolution AI blog images.
+    Generates professional AI blog images using:
+    1. OpenAI (DALL-E 3) - Primary
+    2. Google Gemini (Imagen) - Fallback
     """
-    import io
-    from PIL import Image
-
-    # Dynamically generate ideal visual prompt using LLM if available
     enhanced_prompt = _build_dynamic_image_prompt(prompt, topic)
-    print(f" Visual image prompt: '{enhanced_prompt}'")
+    print(f"  Visual image prompt: '{enhanced_prompt}'")
 
-    img_bytes = None
+    # 1. Priority 1: OpenAI (DALL-E 3)
+    img_bytes = _fetch_openai_image_bytes(enhanced_prompt, size)
 
-    # 1. Primary: Google Imagen 3 (via GEMINI_API_KEY)
-    try:
-        print(f" Generating primary AI image with Google Imagen 3: '{enhanced_prompt}'")
-        img_bytes = _fetch_imagen_image_bytes(enhanced_prompt)
-    except Exception as e:
-        print(f" Google Imagen 3 generation failed: {e}")
-
-    # 2. Secondary: FLUX.1 (Pollinations AI)
+    # 2. Priority 2: Google Gemini API
     if not img_bytes:
-        try:
-            print(f" Trying FLUX.1 image generator: '{enhanced_prompt}'")
-            img_bytes = _fetch_pollinations_image_bytes(enhanced_prompt, size, model="flux")
-        except Exception as e:
-            print(f" FLUX.1 generation failed: {e}")
+        img_bytes = _fetch_gemini_image_bytes(enhanced_prompt, size)
 
-    # 3. Fallback 1: FLUX Realism
-    if not img_bytes:
-        try:
-            print(f" Trying FLUX Realism: '{enhanced_prompt}'")
-            img_bytes = _fetch_pollinations_image_bytes(enhanced_prompt, size, model="flux-realism")
-        except Exception as e:
-            print(f" FLUX Realism generation failed: {e}")
-
-    # 4. Fallback 2: Curated Stock Photo Banner
-    if not img_bytes:
-        try:
-            print(f" Trying stock banner fallback for prompt: '{prompt}'")
-            img_bytes = _fetch_fallback_image_bytes(prompt, size)
-        except Exception as e:
-            print(f" Fallback generator failed: {e}")
-
+    # 3. Crop and resize to exact target size
     if img_bytes:
         try:
-            img_bytes = _resize_image_bytes(img_bytes, size, quality=80)
+            return _resize_image_bytes(img_bytes, size, quality=85)
         except Exception as ree:
-            print(f" Image resize failed: {ree}")
+            print(f"  ⚠️ Image resize failed: {ree}")
+            return img_bytes
 
-    return img_bytes
-
-
-
-
-
-
-
-
-
-    # 3. Fallback to royalty-free placeholder generator
-    if not img_bytes:
-        try:
-            print(f" Trying royalty-free fallback for prompt: '{prompt}'")
-            img_bytes = _fetch_fallback_image_bytes(prompt, size)
-        except Exception as e:
-            print(f" Fallback image generator failed: {e}")
-
-    if img_bytes:
-        try:
-            img_bytes = _resize_image_bytes(img_bytes, size, quality=80)
-        except Exception as ree:
-            print(f" Image resize failed: {ree}")
-
-    return img_bytes
-
-
-
-def _search_real_image_url(query: str) -> Optional[list]:
-
-    """
-    Searches for a real image URL using Tavily.
-    """
-    api_key = os.environ.get("TAVILY_API_KEY") or os.environ.get("TVLY_API_KEY")
-    if not api_key:
-        return None
-    
-    try:
-        from tavily import TavilyClient
-        client = TavilyClient(api_key=api_key)
-        
-        # Add anti-watermark and anti-stock filters to ensure high-quality perfect images
-        # Keep query concise (max 4-5 words) to get cleaner search results
-        words = query.split()
-        concise_query = " ".join(words[:5])
-        safe_query = concise_query + " -stock -watermark -alamy -shutterstock -gettyimages -template -dreamstime -123rf -vector"
-        
-        # Search for images specifically
-        result = client.search(query=safe_query, search_depth="advanced", include_images=True)
-        images = result.get("images", [])
-        if images:
-            # Return all image URLs so we can try the next one if a download fails
-            return images
-    except Exception as e:
-        print(f" Tavily image search failed: {e}")
     return None
-# 
-# 
-def _download_image_bytes(url: str) -> bytes:
-    """
-    Downloads image bytes from a URL with a tight 5-second timeout.
-    """
-    import requests
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    response = requests.get(url, headers=headers, timeout=5)
-    response.raise_for_status()
-    content_type = response.headers.get("Content-Type", "").lower()
-    if "text" in content_type or "html" in content_type:
-        raise ValueError(f"URL returned HTML text ({content_type}) instead of an image file")
-    return response.content
 
 
-def _search_outscraper_image_urls(query: str) -> Optional[list]:
-    """
-    Searches for image URLs using Outscraper API.
-    """
-    import requests
-    
-    api_key = os.environ.get("OUTSCRAPER_API_KEY")
-    if not api_key:
-        return None
-        
-    try:
-        url = "https://api.app.outscraper.com/google-search-images"
-        headers = {
-            'X-API-KEY': api_key,
-        }
-        
-        words = query.split()
-        concise_query = " ".join(words[:5])
-        
-        params = {
-            "query": concise_query,
-            "limit": 10,
-            "async": "false"
-        }
-        
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        # Outscraper typically returns a 'data' array with arrays of results
-        # Or a list of objects if async=false
-        if "data" in data and len(data["data"]) > 0:
-            query_results = data["data"][0]
-            if isinstance(query_results, list) and len(query_results) > 0:
-                return [img.get("image_url") for img in query_results if img.get("image_url")]
-                
-    except Exception as e:
-        print(f" Outscraper image search failed: {e}")
-        
-    return None
 
 def _safe_slug(title: str) -> str:
     s = title.strip().lower()
@@ -1196,78 +1081,42 @@ def generate_and_place_images(state: State) -> dict:
         placeholder = spec["placeholder"]
         orig_filename = spec["filename"]
         filename = Path(orig_filename).stem + ".webp"
-        target_size = spec.get("size", "512x512")
+        target_size = spec.get("size", "1024x576")
         img_bytes = None
 
-        source_pref = spec.get("source_preference", "ai")
+        # 1. Use the LLM text model to dynamically engineer a perfect physical scene
+        topic_name = state.get("topic", "")
+        raw_prompt = spec.get("prompt") or spec.get("alt") or spec.get("placeholder") or "blog banner"
+        if isinstance(spec.get("queries"), list) and len(spec["queries"]) > 0:
+            raw_prompt = spec["queries"][0]
+        dynamic_prompt = _build_dynamic_image_prompt(raw_prompt, topic=topic_name)
         
-        def _try_search():
-            img = None
-            try:
-                print(f" Searching Real Images (Tavily): {spec['prompt']}")
-                img_urls = _search_real_image_url(spec["prompt"])
-                if img_urls:
-                    for img_url in img_urls:
-                        try:
-                            downloaded = _download_image_bytes(img_url)
-                            # Verify valid image bytes using PIL
-                            test_io = io.BytesIO(downloaded)
-                            with Image.open(test_io) as test_img:
-                                test_img.verify()
-                            img = downloaded
-                            break
-                        except Exception as dl_e:
-                            print(f"   Failed or invalid image from {img_url}: {dl_e}")
-            except Exception as e:
-                print(f" Tavily Search failed for {placeholder}: {e}")
-            return img
+        # Priority 1: OpenAI (DALL-E 3)
+        try:
+            img_bytes = _fetch_openai_image_bytes(dynamic_prompt, target_size)
+        except Exception as e:
+            print(f"  ❌ OpenAI generation failed for {placeholder}: {e}")
 
-        def _try_outscraper_search():
-            img = None
-            try:
-                print(f" Searching Real Images (Outscraper): {spec['prompt']}")
-                img_urls = _search_outscraper_image_urls(spec["prompt"])
-                if img_urls:
-                    for img_url in img_urls:
-                        try:
-                            downloaded = _download_image_bytes(img_url)
-                            test_io = io.BytesIO(downloaded)
-                            with Image.open(test_io) as test_img:
-                                test_img.verify()
-                            img = downloaded
-                            break
-                        except Exception as dl_e:
-                            print(f"   Failed or invalid image from {img_url}: {dl_e}")
-            except Exception as e:
-                print(f" Outscraper Search failed for {placeholder}: {e}")
-            return img
-
-        # Try web search first for real, relevant images (Tavily)
-        print(f" Routing: Trying Tavily web search for '{placeholder}'...")
-        img_bytes = _try_search()
-
-        # If Tavily failed, try Outscraper
+        # Priority 2: Google Gemini API
         if not img_bytes:
-            print(f" Tavily web search failed, trying Outscraper web search for '{placeholder}'...")
-            img_bytes = _try_outscraper_search()
-
-        # If web search returned no valid images, try fallback image generator
-        if not img_bytes:
-            print(f" Web image search returned no valid images for '{placeholder}'. Using fallback image generator...")
             try:
-                img_bytes = _fetch_fallback_image_bytes(spec["prompt"], target_size)
-            except Exception as fe:
-                print(f" Fallback image generator failed: {fe}")
+                img_bytes = _fetch_gemini_image_bytes(dynamic_prompt, target_size)
+            except Exception as e:
+                print(f"  ❌ Gemini generation failed for {placeholder}: {e}")
 
-        # 4. Resize and Optimize
+        if not img_bytes:
+            print(f"  ⚠️ Both OpenAI and Gemini image generators failed for '{placeholder}'.")
+            return placeholder, None, filename
+
+        # Resize and Optimize
         if img_bytes:
             try:
                 img_bytes = _resize_image_bytes(img_bytes, target_size, quality=80)
                 return placeholder, img_bytes, filename
             except Exception as ree:
-                print(f" Resize failed for {filename}: {ree}.")
+                print(f"  ⚠️ Resize failed for {filename}: {ree}")
                 return placeholder, None, filename
-        
+
         return placeholder, None, filename
 
     # Process all image searches and downloads in parallel for maximum speed
