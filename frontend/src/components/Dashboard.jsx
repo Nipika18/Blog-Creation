@@ -1369,10 +1369,14 @@ const Dashboard = () => {
             {!isGenerating && (
             <div className="hero-input-container">
               <div className="hero-prompt-wrapper">
+                <div className="hero-prompt-icon">
+                  <Brain size={22} color="#9ca3af" />
+                </div>
                 <textarea
                   ref={textareaRef}
-                  className="hero-prompt-input"
+                  className="hero-prompt-input with-icon"
                   rows="3"
+                  placeholder="Ask anything"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   onKeyDown={(e) => {
