@@ -1335,3 +1335,86 @@ body {
   0%, 100% { transform: scaleY(0.5); }
   50% { transform: scaleY(1.2); }
 }
+
+/* Mobile Responsiveness */
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  color: #1a1a1a;
+  padding: 0;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-overlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .dashboard-layout {
+    position: relative;
+    overflow-x: hidden;
+  }
+  
+  .sidebar {
+    position: fixed;
+    left: -260px;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+    transition: left 0.3s ease;
+  }
+  
+  .sidebar.open {
+    left: 0;
+  }
+  
+  .mobile-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    animation: fadeIn 0.3s ease;
+  }
+  
+  .main-content {
+    width: 100vw;
+  }
+  
+  .mobile-menu-btn {
+    display: flex;
+  }
+  
+  .chat-container {
+    padding: 1.5rem 1rem;
+    padding-bottom: 80px; /* Space for input */
+  }
+  
+  .chat-header {
+    margin: -1.5rem -1rem 1.5rem -1rem;
+    padding: 0.75rem 1rem;
+  }
+  
+  .blog-output h1 { font-size: 1.8rem; }
+  .blog-output h2 { font-size: 1.4rem; }
+  .blog-output p { font-size: 1rem; }
+  
+  .welcome-title {
+    font-size: 1.8rem;
+    text-align: center;
+    padding: 0 1rem;
+  }
+  
+  .input-container {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+  }
+  
+  .prompt-bar-wrapper {
+    padding: 0.4rem 0.6rem;
+  }
+}

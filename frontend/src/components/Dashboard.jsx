@@ -543,6 +543,7 @@ const Dashboard = () => {
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
   const [pendingLinkedInPost, setPendingLinkedInPost] = useState(null);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const textareaRef = useRef(null);
   const menuRef = useRef(null);
   const accountMenuRef = useRef(null);
@@ -817,6 +818,7 @@ const Dashboard = () => {
     setIsGenerating(false);
     localStorage.removeItem('activeBlogFilename');
     localStorage.removeItem('pendingGeneration');
+    setIsSidebarOpen(false);
   };
 
   const handleBlogSelect = async (blog) => {
@@ -829,6 +831,7 @@ const Dashboard = () => {
       setSelectedBlog({ ...blog, content: res.data.content });
       setGeneratedBlog(null);
       localStorage.setItem('activeBlogFilename', blog.filename);
+      setIsSidebarOpen(false);
     } catch (err) {
       console.error('Failed to fetch blog', err);
       setError('Failed to fetch blog content.');
@@ -1216,8 +1219,12 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard-layout">
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div className="mobile-overlay" onClick={() => setIsSidebarOpen(false)} />
+      )}
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <button className="new-chat-btn" onClick={startNewChat}>
           <SquarePen size={20} />
           <span>New Blog</span>
@@ -1494,8 +1501,13 @@ const Dashboard = () => {
           <div className="chat-container">
               <>
                 <div className="chat-header">
-                  <div className="chat-title">
-                    {generatedBlog?.title || selectedBlog?.title || "New Blog"}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                    <button className="mobile-menu-btn" onClick={() => setIsSidebarOpen(true)}>
+                      <Menu size={20} />
+                    </button>
+                    <div className="chat-title">
+                      {generatedBlog?.title || selectedBlog?.title || "New Blog"}
+                    </div>
                   </div>
                   <div className="chat-actions" ref={menuRef}>
 
