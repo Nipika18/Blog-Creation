@@ -684,61 +684,13 @@ const Dashboard = () => {
       try {
         const { topic: pendingTopic, startedAt } = JSON.parse(pending);
         const elapsed = Date.now() - startedAt;
-        // If it was started less than 5 minutes ago, try to recover
-        if (elapsed < 5 * 60 * 1000) {
-          setTopic(pendingTopic);
-          setIsGenerating(true);
-          setError('');
-          // Poll for the blog to appear (backend may still be running)
-          let pollCount = 0;
-          const pollInterval = setInterval(async () => {
-            pollCount++;
-            try {
-              const token = localStorage.getItem('token');
-              const res = await axios.get(`${API_BASE}/past-blogs`, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
-              setPastBlogs(res.data);
-              // Check if a blog matching this topic appeared after our start time
-              const startSec = startedAt / 1000;
-              const newBlog = res.data.find(b => b.mtime >= startSec);
-              if (newBlog) {
-                clearInterval(pollInterval);
-                localStorage.removeItem('pendingGeneration');
-                setIsGenerating(false);
-                // Auto-open the recovered blog
-                loadBlogByFilename(newBlog.filename, res.data);
-                localStorage.setItem('activeBlogFilename', newBlog.filename);
-              } else if (pollCount >= 60) {
-                // Give up after ~5 min of polling
-                clearInterval(pollInterval);
-                localStorage.removeItem('pendingGeneration');
-                setIsGenerating(false);
-                setError('Generation was interrupted. Please try again.');
-              }
-            } catch (e) {
-              console.error('Poll error', e);
-            }
-          }, 5000);
-          // Animate progress steps slowly while polling
-          const ALL_STEPS_RECOVERY = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
-          const progressInterval = setInterval(() => {
-            setGeneratingSteps(prev => {
-              if (prev.length < ALL_STEPS_RECOVERY.length - 1) {
-                return [...prev, ALL_STEPS_RECOVERY[prev.length]];
-              }
-              return prev;
-            });
-          }, 8000); // 8 seconds per step to simulate average time
-          
-          // Clean up progress animation when polling stops
-          const origClear = clearInterval;
-          const checkPollDone = setInterval(() => {
-            if (!localStorage.getItem('pendingGeneration')) {
-              origClear(progressInterval);
-              origClear(checkPollDone);
-            }
-          }, 1000);
+        // If it was started less than 15 minutes ago, try to recover
+        if (elapsed < 15 * 60 * 1000) {
+          console.log(`Reconnecting to active generation for topic: ${pendingTopic}`);
+          // Wait a tick for the component to be fully mounted before calling handleGenerate
+          setTimeout(() => {
+            handleGenerate(null, pendingTopic);
+          }, 100);
         } else {
           // Too old, just clear it
           localStorage.removeItem('pendingGeneration');
@@ -860,17 +812,19 @@ const Dashboard = () => {
     }
   };
 
-  const handleGenerate = async (e) => {
+  const handleGenerate = async (e, overrideTopic = null) => {
     if (e) e.preventDefault();
-    if (!topic.trim() || isGenerating) return;
+    const activeTopic = overrideTopic || topic;
+    if (!activeTopic.trim() || isGenerating) return;
 
+    if (overrideTopic) setTopic(overrideTopic);
     setIsGenerating(true);
     setGeneratedBlog(null);
     setSelectedBlog(null);
     setError('');
 
     // Persist generation state so we can recover after page refresh
-    localStorage.setItem('pendingGeneration', JSON.stringify({ topic, startedAt: Date.now() }));
+    localStorage.setItem('pendingGeneration', JSON.stringify({ topic: activeTopic, startedAt: Date.now() }));
     setGeneratingSteps([]);
 
     let reader = null;
@@ -882,7 +836,7 @@ const Dashboard = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ topic })
+        body: JSON.stringify({ topic: activeTopic })
       });
 
       if (!response.ok) {
@@ -1345,12 +1299,12 @@ const Dashboard = () => {
                   }}>
                     <Loader2 size={18} style={{ marginRight: '10px', animation: 'spin 2s linear infinite', color: '#059669' }} />
                     {(() => {
-                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
-                      const latestCompletedIndex = generatingSteps.length > 0 
-                        ? Math.max(...generatingSteps.map(s => ALL_STEPS.indexOf(s)))
-                        : -1;
+                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placeholders"];
+                      const matchStep = (stepLabel) => generatingSteps.some(s => s.startsWith(stepLabel));
+                      const latestCompletedIndex = ALL_STEPS.reduce((maxIdx, step, i) => matchStep(step) ? i : maxIdx, -1);
                       const currentStepText = ALL_STEPS[latestCompletedIndex + 1] || "Finalizing";
-                      return <span>{currentStepText} · {generatingSteps.length} completed</span>;
+                      const displayText = currentStepText === "Analyzing topic" ? `Analyzing topic: ${topic}` : currentStepText;
+                      return <span>{displayText} · {generatingSteps.length} completed</span>;
                     })()}
                     <span style={{ marginLeft: '10px', fontSize: '1.3rem', lineHeight: 1 }}>›</span>
                   </div>
@@ -1358,16 +1312,18 @@ const Dashboard = () => {
                   {/* Detailed step list */}
                   <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '0.5rem' }}>
                     {(() => {
-                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
-                      const latestCompletedIndex = generatingSteps.length > 0 
-                        ? Math.max(...generatingSteps.map(s => ALL_STEPS.indexOf(s)))
-                        : -1;
+                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placeholders"];
+                      const matchStep = (stepLabel) => generatingSteps.some(s => s.startsWith(stepLabel));
+                      const latestCompletedIndex = ALL_STEPS.reduce((maxIdx, step, i) => matchStep(step) ? i : maxIdx, -1);
                       
                       return ALL_STEPS.map((step, i) => {
-                        const isDone = generatingSteps.includes(step);
+                        const isDone = matchStep(step);
                         const isSkipped = !isDone && i < latestCompletedIndex;
                         const isCompleted = isDone || isSkipped;
                         const isActive = i === latestCompletedIndex + 1;
+                        
+                        // For the analyzing topic step, show the actual topic name
+                        const displayLabel = step === "Analyzing topic" ? `Analyzing topic: ${topic}` : step;
                         
                         return (
                           <div key={step} style={{
@@ -1385,7 +1341,7 @@ const Dashboard = () => {
                             ) : (
                               <span style={{ width: '14px', height: '14px', borderRadius: '50%', border: '1.5px solid #9ca3af', display: 'inline-block' }} />
                             )}
-                            <span>{step}{isSkipped ? ' (Skipped)' : ''}</span>
+                            <span>{displayLabel}</span>
                           </div>
                         );
                       });
@@ -1393,31 +1349,7 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* Bottom: disabled input bar */}
-                <div style={{ width: '100%', maxWidth: '800px', paddingBottom: '1.5rem', paddingTop: '1rem' }}>
-                  <div className="hero-input-container" style={{ margin: 0 }}>
-                    <div className="hero-prompt-wrapper" style={{ opacity: 0.5, pointerEvents: 'none' }}>
-                      <div className="hero-prompt-icon">
-                        <Brain size={22} color="#9ca3af" />
-                      </div>
-                      <textarea
-                        className="hero-prompt-input with-icon"
-                        rows="1"
-                        placeholder="Generating... please wait"
-                        disabled
-                        style={{ cursor: 'not-allowed' }}
-                      />
-                      <div className="hero-input-actions">
-                        <button className="gen-btn-circle" disabled type="button" style={{ opacity: 0.4 }}>
-                          <ArrowUp size={20} color="white" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: '#999', textAlign: 'center', marginTop: '0.8rem' }}>
-                    Blog Writing Agent can make mistakes. Check important info.
-                  </div>
-                </div>
+
 
                 <style>{`
                   @keyframes spin {
@@ -1437,14 +1369,10 @@ const Dashboard = () => {
             {!isGenerating && (
             <div className="hero-input-container">
               <div className="hero-prompt-wrapper">
-                <div className="hero-prompt-icon">
-                  <Brain size={22} color="#9ca3af" />
-                </div>
                 <textarea
                   ref={textareaRef}
-                  className="hero-prompt-input with-icon"
+                  className="hero-prompt-input"
                   rows="3"
-                  placeholder="Ask anything"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   onKeyDown={(e) => {

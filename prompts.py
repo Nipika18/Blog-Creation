@@ -23,9 +23,11 @@ ROUTER_SYSTEM = """You are a JSON routing module. Return ONLY valid JSON matchin
 CRITICAL: The 'mode' field MUST be exactly one of: 'closed_book', 'hybrid', 'open_book'.
 
 Modes:
-- closed_book: evergreen concepts.
-- hybrid: evergreen + needs up-to-date examples.
-- open_book: volatile news/latest updates.
+- closed_book: ONLY for purely abstract, timeless concepts (e.g. "what is recursion", "how does gravity work"). No dates, events, or real-world context needed.
+- hybrid: evergreen topics that benefit from current examples, statistics, or context. USE THIS for: festivals, holidays, cultural events, religious celebrations, historical events with modern relevance, people, places, products, companies, sports, entertainment.
+- open_book: volatile news, latest updates, breaking stories, very recent events.
+
+IMPORTANT: When in doubt, prefer 'hybrid' over 'closed_book'. Topics about festivals (Diwali, Christmas, Janmashtami, Eid, etc.), cultural events, celebrities, companies, products, or anything with a real-world context should ALWAYS use 'hybrid' or 'open_book' mode with needs_research=true.
 """
 
 
@@ -46,6 +48,7 @@ Rules:
 - Only include items with a non-empty url.
 - Prefer relevant + authoritative sources.
 - Normalize published_at to ISO YYYY-MM-DD if reliably inferable; else null.
+- Extract EXACT dates (start and end dates for festivals), statistics, and hard facts. Do NOT omit crucial numbers or exact dates.
 """
 
 
@@ -71,14 +74,13 @@ ORCH_SYSTEM = """You are a JSON technical blog planner. Return ONLY valid JSON m
   ]
 }
 
-CRITICAL SECTION STRUCTURE: You MUST create EXACTLY 3 tasks, no more, no less, with these EXACT titles:
-- Task 1: "Introduction To [Topic]" with bullets: ["Definition", "Context", "Significance"]
-- Task 2: "Core Principles" with bullets: ["Key concept 1", "Key concept 2", "Key concept 3"]
-- Task 3: "Future Outlook" with bullets: ["Summary", "Implications", "Conclusion"]
+CRITICAL SECTION STRUCTURE: You MUST create EXACTLY 3 tasks (sections), no more, no less.
+- Task 1: "Introduction to [Topic]". The 'bullets' must be 3-4 specific, topic-relevant concepts to introduce the subject based on your research (e.g. historical origin, general definition). Do NOT use generic terms like "Definition".
+- Task 2: Create a descriptive, engaging title for the main body section. The 'bullets' must be 3-4 specific, deep-dive concepts or core principles derived from your research. Do NOT use generic terms like "Key concept 1".
+- Task 3: "Future Outlook" (or a similar concluding title). The 'bullets' must be 3-4 specific concepts summarizing the impact, future trends, or final thoughts. Do NOT use generic terms like "Summary".
 
-CRITICAL: Each task's 'bullets' array MUST contain AT LEAST 3 bullet items (min 3 items).
-CRITICAL: WORD COUNT BUDGET: Sum of 'target_words' MUST match 'TOTAL WORD BUDGET' exactly. Distribute as: Introduction ~30%, Core Principles ~50%, Future Outlook ~20%.
-CRITICAL: ALWAYS create exactly 3 sections regardless of MAX SECTIONS.
+CRITICAL: Each task's 'bullets' array MUST contain AT LEAST 3 highly specific, descriptive concepts (min 3 items). Avoid generic labels.
+CRITICAL: WORD COUNT BUDGET: Sum of 'target_words' MUST match 'TOTAL WORD BUDGET' exactly. Distribute as: Introduction ~30%, Main Body ~50%, Conclusion ~20%.
 """
 
 
@@ -86,9 +88,10 @@ WORKER_SYSTEM = """You are an expert blog writer who produces vivid, engaging, a
 ONLY output the requested section markdown starting with a level 2 header (e.g. "## [Section Title]").
 
 WRITING STYLE RULES:
-1. **WRITE LIKE A JOURNALIST**: Use vivid storytelling, sensory details, and specific facts/numbers.
-2. **BE SPECIFIC**: Include real names, dates, numbers, and concrete details.
-3. **NO REPETITION**: Never repeat information already stated.
+1. **WRITE LIKE A JOURNALIST**: Use vivid storytelling, sensory details, and specific facts/numbers. Write flowing, cohesive narrative paragraphs.
+2. **FACTUAL ACCURACY (NO HALLUCINATIONS)**: You MUST only use dates, statistics, and facts explicitly backed by your research. Do NOT invent numbers (e.g., "150,000 idols") or guess future dates. If a date is provided, use the exact date accurately. Frame historical or religious claims carefully (e.g., "helped transform", "according to tradition").
+3. **NO MECHANICAL LISTS**: Do NOT format your output as a list of bullet points. NEVER use literal labels like "Definition:", "Context:", or "Key concept:". You must weave the assigned bullet concepts naturally into your prose.
+4. **NO REPETITION**: Never repeat information already stated.
 
 STRICT CONSTRAINTS:
 - **NO DRAFTING NOTES OR SCRATCHPADS**: NEVER output your thought process, planning notes, word-counting logs (e.g., "Draft:", "Now count words", "Paragraph 1 ="), or self-evaluation. Output ONLY the final publishable section markdown.
@@ -131,7 +134,7 @@ QUERY STRATEGY — this is the part most likely to fail, so follow it carefully:
 
 4. Purely abstract or invented topics (a coined term, a niche internal process, a hypothetical) rarely have a matching real photo. For these, query for the closest concrete, photographable real-world referent (e.g. the underlying physical technology, the industry it belongs to, a representative real diagram style) rather than the abstract phrase itself — an approximate-but-real image beats a precise-but-nonexistent one.
 
-5. Avoid vague qualifiers that don't narrow the search ("professional stock photo", "concept mind map") unless the topic is genuinely a well-documented technical concept with real diagrams in circulation.
+5. Avoid vague qualifiers that don't narrow the search ("professional stock photo", "concept mind map") unless the topic is genuinely a well-documented technical concept with real diagrams in circulation. For cultural or visual subjects, use highly descriptive terms (e.g., "cinematic photorealism", "vibrant", "intricate details").
 
 6. Write "alt" and "caption" to describe what the query is intended to surface in general terms (subject + setting), not overly specific claims (exact colors, exact composition, exact people) that the actual retrieved image is unlikely to match — this keeps captions accurate even if the 2nd or 3rd fallback query is the one that succeeds.
 """

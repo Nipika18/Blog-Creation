@@ -129,68 +129,143 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
 
     def _invoke_with_fallback(input_params):
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        from langchain_groq import ChatGroq
         
+        # 1. Try Groq (Primary)
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key:
+            try:
+                model_id = "llama-3.3-70b-versatile"
+                print(f" Generating with Groq ({model_id})...")
+                llm = ChatGroq(
+                    model=model_id,
+                    api_key=groq_key,
+                    max_tokens=max_tokens_limit,
+                    temperature=0.7
+                )
+                if schema:
+                    llm = llm.with_structured_output(schema)
+                return llm.invoke(input_params, config={
+                    "run_name": f"Groq/{model_id}",
+                    "tags": ["groq", "primary"],
+                    "metadata": {"provider": "groq", "model": model_id}
+                })
+            except Exception as e:
+                print(f" Groq API failed: {e}")
+
+        # 2. Try Nvidia (Fallback 1)
+        nvidia_key = os.getenv("NVIDIA_API_KEY")
+        if nvidia_key:
+            try:
+                from langchain_nvidia_ai_endpoints import ChatNVIDIA
+                model_id = "meta/llama-3.3-70b-instruct"
+                print(f" Generating with Nvidia ({model_id})...")
+                llm = ChatNVIDIA(
+                    model=model_id,
+                    api_key=nvidia_key,
+                    max_tokens=max_tokens_limit,
+                    temperature=0.7
+                )
+                if schema:
+                    llm = llm.with_structured_output(schema)
+                return llm.invoke(input_params, config={
+                    "run_name": f"Nvidia/{model_id}",
+                    "tags": ["nvidia", "fallback-1"],
+                    "metadata": {"provider": "nvidia", "model": model_id}
+                })
+            except Exception as e:
+                print(f" Nvidia API failed: {e}")
+        
+        # 3. Try Gemini (Fallback 2)
         gemini_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_key:
-            return AIMessage(content="Error: GEMINI_API_KEY is not set.")
-
-        try:
-            model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-            print(f" Generating with Gemini ({model_name})...")
-            llm = ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=gemini_key,
-                max_output_tokens=max_tokens_limit,
-                temperature=0.7
-            )
-            
-            if schema:
-                llm = llm.with_structured_output(schema)
+        if gemini_key:
+            try:
+                model_id = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+                print(f" Generating with Gemini ({model_id})...")
+                llm = ChatGoogleGenerativeAI(
+                    model=model_id,
+                    google_api_key=gemini_key,
+                    max_output_tokens=max_tokens_limit,
+                    temperature=0.7
+                )
+                if schema:
+                    llm = llm.with_structured_output(schema)
+                res = llm.invoke(input_params, config={
+                    "run_name": f"Gemini/{model_id}",
+                    "tags": ["gemini", "fallback-2"],
+                    "metadata": {"provider": "gemini", "model": model_id}
+                })
+                if hasattr(res, "content") and not schema:
+                    res.additional_kwargs["llm_fallback_active"] = True
+                return res
+            except Exception as e:
+                print(f" Gemini API failed: {e}")
                 
-            res = llm.invoke(input_params)
-            return res
-        except Exception as e:
-            print(f" Gemini API failed: {e}")
-            
-            # 2. Fallback to OpenRouter
-            or_key = os.getenv("OPENROUTER_API_KEY")
-            if or_key:
-                try:
-                    from langchain_openai import ChatOpenAI
-                    print(" Trying OpenRouter (nvidia/nemotron-3-ultra-550b-a55b:free) as first fallback...")
-                    or_llm = ChatOpenAI(
-                        base_url="https://openrouter.ai/api/v1",
-                        model="nvidia/nemotron-3-ultra-550b-a55b:free",
-                        api_key=or_key,
-                        timeout=45,
-                        max_retries=1,
-                        max_tokens=max_tokens_limit
-                    )
+        # 4. Try OpenRouter (Fallback 3)
+        or_key = os.getenv("OPENROUTER_API_KEY")
+        if or_key:
+            try:
+                from langchain_openai import ChatOpenAI
+                model_id = "nvidia/nemotron-3-ultra-550b-a55b:free"
+                print(f" Trying OpenRouter ({model_id}) as fallback...")
+                or_llm = ChatOpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    model=model_id,
+                    api_key=or_key,
+                    timeout=45,
+                    max_retries=1,
+                    max_tokens=max_tokens_limit
+                )
+                if schema:
+                    hint = "Respond ONLY with valid JSON matching the requested schema."
+                    params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
+                    chain = or_llm.with_structured_output(schema, method="json_mode")
+                else:
+                    params = input_params
+                    chain = or_llm
                     
-                    if schema:
-                        hint = "Respond ONLY with valid JSON matching the requested schema."
-                        params = list(input_params) + [HumanMessage(content=hint)] if isinstance(input_params, list) else f"{input_params}\n\n{hint}"
-                        chain = or_llm.with_structured_output(schema, method="json_mode")
-                    else:
-                        params = input_params
-                        chain = or_llm
-                        
-                    res = chain.invoke(params)
-                    if hasattr(res, 'content') and isinstance(res.content, str):
-                        import re
-                        res.content = re.sub(r'<think>.*?(</think>|$)', '', res.content, flags=re.DOTALL).strip()
-                    if hasattr(res, "content") and not schema:
-                        res.additional_kwargs["llm_fallback_active"] = True
-                    return res
-                except Exception as oe:
-                    print(f" OpenRouter Gemma failed: {oe}")
+                res = chain.invoke(params, config={
+                    "run_name": f"OpenRouter/{model_id}",
+                    "tags": ["openrouter", "fallback-3"],
+                    "metadata": {"provider": "openrouter", "model": model_id}
+                })
+                if hasattr(res, 'content') and isinstance(res.content, str):
+                    import re
+                    res.content = re.sub(r'<think>.*?(</think>|$)', '', res.content, flags=re.DOTALL).strip()
+                if hasattr(res, "content") and not schema:
+                    res.additional_kwargs["llm_fallback_active"] = True
+                return res
+            except Exception as oe:
+                print(f" OpenRouter failed: {oe}")
 
-            
-            if static_fallback is not None:
-                return static_fallback
-            if schema:
-                return schema()
-            return AIMessage(content="Content generation failed.")
+        # 5. Try OpenAI (Fallback 4)
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key and openai_key.startswith("sk-"):
+            model_id = "gpt-4o-mini"
+            print(f" Trying OpenAI ({model_id}) as final fallback...")
+            try:
+                from langchain_openai import ChatOpenAI
+                openai_llm = ChatOpenAI(
+                    model=model_id,
+                    api_key=openai_key,
+                    max_tokens=max_tokens_limit,
+                    temperature=0.7
+                )
+                if schema:
+                    openai_llm = openai_llm.with_structured_output(schema)
+                return openai_llm.invoke(input_params, config={
+                    "run_name": f"OpenAI/{model_id}",
+                    "tags": ["openai", "fallback-4"],
+                    "metadata": {"provider": "openai", "model": model_id}
+                })
+            except Exception as e:
+                print(f" OpenAI API failed: {e}")
+
+        if static_fallback is not None:
+            return static_fallback
+        if schema:
+            return schema()
+        return AIMessage(content="Content generation failed.")
             
     return RunnableLambda(_invoke_with_fallback)
 
@@ -239,7 +314,7 @@ def router_node(state: State) -> dict:
     }
 
 def route_next(state: State) -> str:
-    return "research" if state["needs_research"] else "orchestrator"
+    return "research"  # Always scrape the web for every topic
 
 # -----------------------------
 # 4) Research (Tavily)

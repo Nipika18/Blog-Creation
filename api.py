@@ -21,6 +21,12 @@ from datetime import datetime, timedelta
 
 # Import the blog writer backend
 from bwa_backend import app as blog_app
+import queue
+import threading
+
+# Track active blog generations per user for reconnection on refresh
+# Key: user_id, Value: { topic, thread, clients: [queue.Queue], seen_events: [str], finished: bool }
+ACTIVE_GENERATIONS = {}
 
 
 app = FastAPI(title="Blog Writing Agent API")
@@ -655,7 +661,57 @@ class BlogGenerateRequest(BaseModel):
 @app.post("/generate-blog")
 async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
     as_of = request.as_of or date.today().isoformat()
-    
+    user_id = current_user.id
+    import json as _json
+
+    # Map internal node names to user-friendly labels
+    NODE_LABELS = {
+        "router": "Analyzing topic",
+        "research": "Researching the web",
+        "orchestrator": "Planning blog structure",
+        "worker": "Writing sections",
+        "reducer": "Assembling & generating images",
+        "merge_content": "Merging content",
+        "decide_images": "Deciding image placement",
+        "generate_and_place_images": "Preparing images",
+    }
+
+    # Check if this user already has an active generation running
+    if user_id in ACTIVE_GENERATIONS:
+        active = ACTIVE_GENERATIONS[user_id]
+        if not active.get("finished"):
+            # Reconnect: create a new subscriber queue and replay past events
+            client_q = queue.Queue()
+            active["clients"].append(client_q)
+            # Replay all previously seen events so the frontend catches up
+            for past_event in active["seen_events"]:
+                client_q.put(past_event)
+            print(f" ✅ User {user_id} reconnected to active generation: '{active['topic']}'")
+
+            def reconnect_stream():
+                try:
+                    while True:
+                        msg = client_q.get(timeout=300)  # 5 min timeout
+                        if msg == "EOF":
+                            break
+                        yield msg
+                except queue.Empty:
+                    print(f" Client stream timed out for user {user_id}")
+                except Exception as e:
+                    print(f" Client disconnected from stream: {e}")
+                finally:
+                    # Remove this client queue from the active task
+                    try:
+                        active["clients"].remove(client_q)
+                    except ValueError:
+                        pass
+
+            return StreamingResponse(reconnect_stream(), media_type="text/event-stream")
+        else:
+            # Previous generation finished, clean it up
+            del ACTIVE_GENERATIONS[user_id]
+
+    # Start a new generation
     inputs = {
         "topic": request.topic,
         "as_of": as_of,
@@ -673,29 +729,45 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
         "final": "",
     }
 
-    # Map internal node names to user-friendly labels
-    NODE_LABELS = {
-        "router": "Analyzing topic",
-        "research": "Researching the web",
-        "orchestrator": "Planning blog structure",
-        "worker": "Writing sections",
-        "reducer": "Assembling & generating images",
-        "merge_content": "Merging content",
-        "decide_images": "Deciding image placement",
-        "generate_and_place_images": "Generating images",
-    }
+    # Create the first client queue
+    client_q = queue.Queue()
 
-    def event_stream():
-        import json as _json
+    # Register the active generation
+    task_state = {
+        "topic": request.topic,
+        "clients": [client_q],
+        "seen_events": [],
+        "finished": False,
+    }
+    ACTIVE_GENERATIONS[user_id] = task_state
+
+    def _broadcast(msg):
+        """Send a message to all connected client queues and record it."""
+        task_state["seen_events"].append(msg)
+        dead_clients = []
+        for cq in task_state["clients"]:
+            try:
+                cq.put_nowait(msg)
+            except Exception:
+                dead_clients.append(cq)
+        for dc in dead_clients:
+            try:
+                task_state["clients"].remove(dc)
+            except ValueError:
+                pass
+
+    def background_worker():
         seen_nodes = []
         accumulated_state = dict(inputs)
         try:
             for event in blog_app.stream(inputs, stream_mode="updates"):
                 for node_name, node_output in event.items():
                     label = NODE_LABELS.get(node_name, node_name)
+                    if node_name == "router":
+                        label = f"Analyzing topic: {inputs['topic']}"
                     seen_nodes.append(label)
-                    # Send progress event
-                    yield f"data: {_json.dumps({'type': 'progress', 'step': label, 'steps_done': len(seen_nodes)})}\n\n"
+                    # Broadcast progress event to all connected clients
+                    _broadcast(f"data: {_json.dumps({'type': 'progress', 'step': label, 'steps_done': len(seen_nodes)})}\n\n")
                     # Accumulate state updates from each node
                     accumulated_state.update(node_output)
 
@@ -723,7 +795,7 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
                         title=title or request.topic,
                         filename=filename,
                         content=final_md,
-                        user_id=current_user.id
+                        user_id=user_id
                     )
                     session.add(db_blog)
                     session.commit()
@@ -732,9 +804,9 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
                 except Exception as save_err:
                     session.rollback()
                     print(f" Failed to save blog to database: {save_err}")
-                    yield f"data: {_json.dumps({'type': 'error', 'detail': f'Failed to save blog to database: {save_err}'})}\n\n"
+                    _broadcast(f"data: {_json.dumps({'type': 'error', 'detail': f'Failed to save blog to database: {save_err}'})}\n\n")
                     session.close()
-                    return # Exit the generator
+                    return
                 
                 # Attempt to save images separately so a failure here doesn't ruin the blog save
                 if save_successful:
@@ -759,13 +831,47 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
             final_result["filename"] = filename
             if title:
                 final_result["title"] = title
-            yield f"data: {_json.dumps({'type': 'done', 'result': {k: v for k, v in final_result.items() if k not in ('evidence', 'plan', 'sections')}})}\n\n"
+            _broadcast(f"data: {_json.dumps({'type': 'done', 'result': {k: v for k, v in final_result.items() if k not in ('evidence', 'plan', 'sections')}})}\n\n")
             
         except Exception as e:
             print(f"Error generating blog: {e}")
             import traceback
             traceback.print_exc()
-            yield f"data: {_json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+            _broadcast(f"data: {_json.dumps({'type': 'error', 'detail': str(e)})}\n\n")
+        finally:
+            # Mark as finished and send EOF to all clients
+            task_state["finished"] = True
+            for cq in task_state["clients"]:
+                try:
+                    cq.put_nowait("EOF")
+                except Exception:
+                    pass
+            # Clean up after a short delay to allow reconnections to finish
+            def _cleanup():
+                import time
+                time.sleep(10)
+                ACTIVE_GENERATIONS.pop(user_id, None)
+            threading.Thread(target=_cleanup, daemon=True).start()
+
+    threading.Thread(target=background_worker, daemon=True).start()
+
+    def event_stream():
+        try:
+            while True:
+                msg = client_q.get(timeout=300)  # 5 min timeout
+                if msg == "EOF":
+                    break
+                yield msg
+        except queue.Empty:
+            print(f" Client stream timed out for user {user_id}")
+        except Exception as e:
+            print(f" Client disconnected from stream: {e}")
+        finally:
+            # Remove this client queue from the active task
+            try:
+                task_state["clients"].remove(client_q)
+            except ValueError:
+                pass
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
