@@ -5,7 +5,11 @@ from passlib.context import CryptContext
 import os
 
 # Secret key to sign JWT tokens
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-for-dev-purposes-1234567890")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    import warnings
+    warnings.warn("SECRET_KEY environment variable not set. Using insecure default. DO NOT USE IN PRODUCTION.")
+    SECRET_KEY = "your-secret-key-for-dev-purposes-1234567890"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
 

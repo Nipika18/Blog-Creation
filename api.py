@@ -71,7 +71,7 @@ def get_current_user(db: Session = Depends(database.get_db), token: str = Depend
         email: str = payload.get("sub")
         if email is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception:
+    except auth.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
         
     user = db.query(models.User).filter(models.User.email == email).first()
@@ -672,34 +672,53 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
         "generated_images": {},
         "final": "",
     }
-    
-    try:
-        # Run the workflow
-        result = blog_app.invoke(inputs)
-        
-        final_md = result.get("final", "")
-        filename = None
-        if final_md:
-            from bwa_backend import _safe_slug
-            title = result.get("topic")
-            if not title and result.get("plan"):
-                plan = result.get("plan")
-                title = getattr(plan, "blog_title", None) if not isinstance(plan, dict) else plan.get("blog_title")
+
+    # Map internal node names to user-friendly labels
+    NODE_LABELS = {
+        "router": "Analyzing topic",
+        "research": "Researching the web",
+        "orchestrator": "Planning blog structure",
+        "worker": "Writing sections",
+        "reducer": "Assembling & generating images",
+        "merge_content": "Merging content",
+        "decide_images": "Deciding image placement",
+        "generate_and_place_images": "Generating images",
+    }
+
+    def event_stream():
+        import json as _json
+        seen_nodes = []
+        accumulated_state = dict(inputs)
+        try:
+            for event in blog_app.stream(inputs, stream_mode="updates"):
+                for node_name, node_output in event.items():
+                    label = NODE_LABELS.get(node_name, node_name)
+                    seen_nodes.append(label)
+                    # Send progress event
+                    yield f"data: {_json.dumps({'type': 'progress', 'step': label, 'steps_done': len(seen_nodes)})}\n\n"
+                    # Accumulate state updates from each node
+                    accumulated_state.update(node_output)
+
+            # Use the accumulated state as the final result
+            final_result = accumulated_state
             
-            filename = f"{_safe_slug(title or request.topic)}_{secrets.token_hex(4)}.md"
-            
-            # Save blog to database with a fresh session after long-running workflow
-            session = database.SessionLocal()
-            try:
-                db_blog = session.query(models.Blog).filter(
-                    models.Blog.filename == filename, 
-                    models.Blog.user_id == current_user.id
-                ).first()
+            final_md = final_result.get("final", "")
+            filename = None
+            title = None
+            if final_md:
+                from bwa_backend import _safe_slug
+                if final_result.get("plan"):
+                    plan = final_result.get("plan")
+                    title = getattr(plan, "blog_title", None) if not isinstance(plan, dict) else plan.get("blog_title")
+                if not title:
+                    title = final_result.get("topic")
                 
-                if db_blog:
-                    db_blog.content = final_md
-                    db_blog.title = title or request.topic
-                else:
+                filename = f"{_safe_slug(title or request.topic)}_{secrets.token_hex(4)}.md"
+                
+                # Save blog to database
+                session = database.SessionLocal()
+                save_successful = False
+                try:
                     db_blog = models.Blog(
                         title=title or request.topic,
                         filename=filename,
@@ -707,47 +726,48 @@ async def generate_blog(request: BlogGenerateRequest, db: Session = Depends(data
                         user_id=current_user.id
                     )
                     session.add(db_blog)
+                    session.commit()
+                    session.refresh(db_blog)
+                    save_successful = True
+                except Exception as save_err:
+                    session.rollback()
+                    print(f" Failed to save blog to database: {save_err}")
+                    yield f"data: {_json.dumps({'type': 'error', 'detail': f'Failed to save blog to database: {save_err}'})}\n\n"
+                    session.close()
+                    return # Exit the generator
                 
-                session.commit()
-                session.refresh(db_blog)
-
-                # Save generated images to database
-                generated_images = result.get("generated_images", {})
-                for img_filename, img_data in generated_images.items():
-                    db_image = session.query(models.BlogImage).filter(
-                        models.BlogImage.filename == img_filename,
-                        models.BlogImage.blog_id == db_blog.id
-                    ).first()
-                    if not db_image:
-                        db_image = models.BlogImage(
-                            filename=img_filename,
-                            content=img_data,
-                            blog_id=db_blog.id
-                        )
-                        session.add(db_image)
-                    else:
-                        db_image.content = img_data
+                # Attempt to save images separately so a failure here doesn't ruin the blog save
+                if save_successful:
+                    try:
+                        generated_images = final_result.get("generated_images", {})
+                        for img_filename, img_data in generated_images.items():
+                            db_image = models.BlogImage(
+                                filename=img_filename,
+                                content=img_data,
+                                blog_id=db_blog.id
+                            )
+                            session.add(db_image)
+                        session.commit()
+                    except Exception as img_save_err:
+                        session.rollback()
+                        print(f" Failed to save images to database: {img_save_err}")
                 
-                session.commit()
-            except Exception as save_err:
-                session.rollback()
-                print(f" Failed to save blog to database: {save_err}")
-                raise HTTPException(status_code=500, detail=f"Database error: Could not save blog ({str(save_err)})")
-            finally:
                 session.close()
+
+            # Send the final result
+            final_result.pop("generated_images", None)
+            final_result["filename"] = filename
+            if title:
+                final_result["title"] = title
+            yield f"data: {_json.dumps({'type': 'done', 'result': {k: v for k, v in final_result.items() if k not in ('evidence', 'plan', 'sections')}})}\n\n"
             
-        # IMPORTANT: Remove binary data before returning to frontend. 
-        # FastAPI's jsonable_encoder tries to .decode() bytes to UTF-8, which crashes for image data.
-        result.pop("generated_images", None)
-        result["filename"] = filename
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error generating blog: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            print(f"Error generating blog: {e}")
+            import traceback
+            traceback.print_exc()
+            yield f"data: {_json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @app.get("/download-md/{filename}")
 def download_md(filename: str, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):

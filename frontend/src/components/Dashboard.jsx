@@ -39,7 +39,10 @@ import {
   Upload,
   Loader2,
   RefreshCw,
-  Trash2
+  Trash2,
+  Mic,
+  Brain,
+  AudioLines
 } from 'lucide-react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
@@ -94,15 +97,17 @@ const ColorPickerPopover = ({ onSelect, onClose, current }) => {
       <div className="color-grid">
         {COLORS.map(color => (
           <button
+            type="button"
             key={color}
             className={`color-cell ${current === color ? 'active' : ''}`}
             style={{ backgroundColor: color }}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => { onSelect(color); onClose(); }}
             title={color}
           />
         ))}
       </div>
-      <button className="clear-color-btn" onClick={() => { onSelect(''); onClose(); }}>
+      <button type="button" className="clear-color-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => { onSelect(''); onClose(); }}>
         Clear Color
       </button>
     </div>
@@ -171,34 +176,34 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
       <div className="menu-divider" />
 
       <div className="menu-group">
-        <button onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} className="menu-btn" title="Undo"><Undo size={18} /></button>
-        <button onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} className="menu-btn" title="Redo"><Redo size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} className="menu-btn" title="Undo"><Undo size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} className="menu-btn" title="Redo"><Redo size={18} /></button>
       </div>
 
       <div className="menu-divider" />
 
       <div className="menu-group">
-        <button onClick={() => editor.chain().focus().toggleBold().run()} className={`menu-btn ${editor.isActive('bold') ? 'active' : ''}`} title="Bold"><Bold size={18} /></button>
-        <button onClick={() => editor.chain().focus().toggleItalic().run()} className={`menu-btn ${editor.isActive('italic') ? 'active' : ''}`} title="Italic"><Italic size={18} /></button>
-        <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={`menu-btn ${editor.isActive('underline') ? 'active' : ''}`} title="Underline"><Underline size={18} /></button>
-        <button onClick={() => editor.chain().focus().toggleStrike().run()} className={`menu-btn ${editor.isActive('strike') ? 'active' : ''}`} title="Strike"><Strikethrough size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBold().run()} className={`menu-btn ${editor.isActive('bold') ? 'active' : ''}`} title="Bold"><Bold size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleItalic().run()} className={`menu-btn ${editor.isActive('italic') ? 'active' : ''}`} title="Italic"><Italic size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleUnderline().run()} className={`menu-btn ${editor.isActive('underline') ? 'active' : ''}`} title="Underline"><Underline size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleStrike().run()} className={`menu-btn ${editor.isActive('strike') ? 'active' : ''}`} title="Strike"><Strikethrough size={18} /></button>
       </div>
 
       <div className="menu-divider" />
 
       <div className="menu-group">
-        <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 1 }) ? 'active' : ''}`} title="H1">H1</button>
-        <button onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 2 }) ? 'active' : ''}`} title="H2">H2</button>
-        <button onClick={() => editor.chain().focus().toggleBulletList().run()} className={`menu-btn ${editor.isActive('bulletList') ? 'active' : ''}`} title="Bullet List"><List size={18} /></button>
-        <button onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`menu-btn ${editor.isActive('orderedList') ? 'active' : ''}`} title="Ordered List"><ListOrdered size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 1 }) ? 'active' : ''}`} title="H1">H1</button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 2 }) ? 'active' : ''}`} title="H2">H2</button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBulletList().run()} className={`menu-btn ${editor.isActive('bulletList') ? 'active' : ''}`} title="Bullet List"><List size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`menu-btn ${editor.isActive('orderedList') ? 'active' : ''}`} title="Ordered List"><ListOrdered size={18} /></button>
       </div>
 
       <div className="menu-divider" />
 
       <div className="menu-group">
-        <button onClick={() => editor.chain().focus().setTextAlign('left').run()} className={`menu-btn ${editor.isActive({ textAlign: 'left' }) ? 'active' : ''}`} title="Align Left"><AlignLeft size={18} /></button>
-        <button onClick={() => editor.chain().focus().setTextAlign('center').run()} className={`menu-btn ${editor.isActive({ textAlign: 'center' }) ? 'active' : ''}`} title="Align Center"><AlignCenter size={18} /></button>
-        <button onClick={() => editor.chain().focus().setTextAlign('right').run()} className={`menu-btn ${editor.isActive({ textAlign: 'right' }) ? 'active' : ''}`} title="Align Right"><AlignRight size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().setTextAlign('left').run()} className={`menu-btn ${editor.isActive({ textAlign: 'left' }) ? 'active' : ''}`} title="Align Left"><AlignLeft size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().setTextAlign('center').run()} className={`menu-btn ${editor.isActive({ textAlign: 'center' }) ? 'active' : ''}`} title="Align Center"><AlignCenter size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().setTextAlign('right').run()} className={`menu-btn ${editor.isActive({ textAlign: 'right' }) ? 'active' : ''}`} title="Align Right"><AlignRight size={18} /></button>
       </div>
 
       <div className="menu-divider" />
@@ -238,9 +243,9 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
           )}
         </div>
 
-        <button onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`menu-btn ${editor.isActive('blockquote') ? 'active' : ''}`} title="Quote"><Quote size={18} /></button>
-        <button onClick={() => editor.chain().focus().toggleCodeBlock().run()} className={`menu-btn ${editor.isActive('codeBlock') ? 'active' : ''}`} title="Code Block"><Code size={18} /></button>
-        <button onClick={() => fileInputRef.current.click()} className="menu-btn" title="Upload Image">
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBlockquote().run()} className={`menu-btn ${editor.isActive('blockquote') ? 'active' : ''}`} title="Quote"><Quote size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleCodeBlock().run()} className={`menu-btn ${editor.isActive('codeBlock') ? 'active' : ''}`} title="Code Block"><Code size={18} /></button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => fileInputRef.current.click()} className="menu-btn" title="Upload Image">
           <ImageIcon size={18} />
           <input
             type="file"
@@ -452,9 +457,9 @@ const ImagePlaceholderCard = ({ placeholderTag, index, prompt, filename, onImage
 
       const token = localStorage.getItem('token');
       const res = await axios.post(`${API_BASE}/blog/${filename}/upload-image`, formData, {
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data' 
+          'Content-Type': 'multipart/form-data'
         }
       });
 
@@ -483,32 +488,32 @@ const ImagePlaceholderCard = ({ placeholderTag, index, prompt, filename, onImage
         </div>
       ) : (
         <div className="placeholder-actions">
-          <button 
+          <button
             type="button"
-            className="placeholder-btn btn-ai" 
+            className="placeholder-btn btn-ai"
             onClick={handleGenerateAI}
             title="Generate Image using AI"
           >
             <Sparkles size={18} />
             <span>Generate by AI</span>
           </button>
-          
-          <button 
+
+          <button
             type="button"
-            className="placeholder-btn btn-upload" 
+            className="placeholder-btn btn-upload"
             onClick={handleManualUploadClick}
             title="Upload local image file"
           >
             <Upload size={18} />
             <span>Upload Manually</span>
           </button>
-          
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept="image/png, image/jpeg, image/webp, image/gif" 
-            style={{ display: 'none' }} 
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/png, image/jpeg, image/webp, image/gif"
+            style={{ display: 'none' }}
           />
         </div>
       )}
@@ -526,7 +531,8 @@ const Dashboard = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedBlog, setGeneratedBlog] = useState(null);
   const [error, setError] = useState('');
-  const [progress, setProgress] = useState(0); // 0 to 4 steps
+  const [generatingSteps, setGeneratingSteps] = useState([]);
+  const [progress, setProgress] = useState(0); // For polling fallback
   const [user, setUser] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
@@ -540,6 +546,87 @@ const Dashboard = () => {
   const textareaRef = useRef(null);
   const menuRef = useRef(null);
   const accountMenuRef = useRef(null);
+
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  const heroHeadings = useMemo(() => [
+    "What would you like to blog about?",
+    "Write a detailed guide on modern React...",
+    "Draft an exciting story about space travel...",
+    "Explain quantum computing to a beginner...",
+    "Create a comprehensive tutorial on AI...",
+    "Summarize the history of the Roman Empire..."
+  ], []);
+  const [headingIndex, setHeadingIndex] = useState(0);
+
+  useEffect(() => {
+    // Only cycle headings if the user hasn't started typing yet
+    if (topic.trim()) return;
+    const interval = setInterval(() => {
+      setHeadingIndex((prev) => (prev + 1) % heroHeadings.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [topic, heroHeadings]);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setTopic(prev => (prev ? prev + ' ' + transcript : transcript).trim());
+      };
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          alert("Microphone access is blocked! Please click the microphone icon in your browser's address bar and allow access to use voice input.");
+        } else if (event.error === 'network') {
+          alert("Network error: Your browser's built-in speech service failed to connect. (Note: Open-source Chromium or Brave on Linux often do not support Web Speech API natively. Please try using official Google Chrome.)");
+        } else if (event.error !== 'no-speech') {
+          alert(`Speech recognition stopped: ${event.error}`);
+        }
+      };
+      recognition.onend = () => setIsListening(false);
+
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleVoiceInput = () => {
+    console.log("toggleVoiceInput called, recognitionRef:", recognitionRef.current, "isListening:", isListening);
+    if (!recognitionRef.current) {
+      alert("Voice input is not supported in this browser. Try Chrome or Edge.");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      try {
+        recognitionRef.current.start();
+      } catch (err) {
+        console.error("Speech start error:", err);
+        alert("Could not start voice input: " + err.message);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        toggleVoiceInput();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isListening]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -573,11 +660,8 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    fetchPastBlogs();
-    fetchUserProfile();
-    fetchLinkedInStatus();
-
     // Handle 401 Unauthorized globally by clearing stale token and redirecting to login
+    // NOTE: This must be registered BEFORE the fetch calls so it intercepts them.
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       (error) => {
@@ -588,6 +672,80 @@ const Dashboard = () => {
         return Promise.reject(error);
       }
     );
+
+    fetchPastBlogs();
+    fetchUserProfile();
+    fetchLinkedInStatus();
+
+    // Recover from interrupted generation (user refreshed while generating)
+    const pending = localStorage.getItem('pendingGeneration');
+    if (pending) {
+      try {
+        const { topic: pendingTopic, startedAt } = JSON.parse(pending);
+        const elapsed = Date.now() - startedAt;
+        // If it was started less than 5 minutes ago, try to recover
+        if (elapsed < 5 * 60 * 1000) {
+          setTopic(pendingTopic);
+          setIsGenerating(true);
+          setError('');
+          // Poll for the blog to appear (backend may still be running)
+          let pollCount = 0;
+          const pollInterval = setInterval(async () => {
+            pollCount++;
+            try {
+              const token = localStorage.getItem('token');
+              const res = await axios.get(`${API_BASE}/past-blogs`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              setPastBlogs(res.data);
+              // Check if a blog matching this topic appeared after our start time
+              const startSec = startedAt / 1000;
+              const newBlog = res.data.find(b => b.mtime >= startSec);
+              if (newBlog) {
+                clearInterval(pollInterval);
+                localStorage.removeItem('pendingGeneration');
+                setIsGenerating(false);
+                // Auto-open the recovered blog
+                loadBlogByFilename(newBlog.filename, res.data);
+                localStorage.setItem('activeBlogFilename', newBlog.filename);
+              } else if (pollCount >= 60) {
+                // Give up after ~5 min of polling
+                clearInterval(pollInterval);
+                localStorage.removeItem('pendingGeneration');
+                setIsGenerating(false);
+                setError('Generation was interrupted. Please try again.');
+              }
+            } catch (e) {
+              console.error('Poll error', e);
+            }
+          }, 5000);
+          // Animate progress steps slowly while polling
+          const ALL_STEPS_RECOVERY = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
+          const progressInterval = setInterval(() => {
+            setGeneratingSteps(prev => {
+              if (prev.length < ALL_STEPS_RECOVERY.length - 1) {
+                return [...prev, ALL_STEPS_RECOVERY[prev.length]];
+              }
+              return prev;
+            });
+          }, 8000); // 8 seconds per step to simulate average time
+          
+          // Clean up progress animation when polling stops
+          const origClear = clearInterval;
+          const checkPollDone = setInterval(() => {
+            if (!localStorage.getItem('pendingGeneration')) {
+              origClear(progressInterval);
+              origClear(checkPollDone);
+            }
+          }, 1000);
+        } else {
+          // Too old, just clear it
+          localStorage.removeItem('pendingGeneration');
+        }
+      } catch (e) {
+        localStorage.removeItem('pendingGeneration');
+      }
+    }
 
     // Listen for LinkedIn OAuth popup callback
     const handleMessage = (event) => {
@@ -645,6 +803,7 @@ const Dashboard = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('activeBlogFilename');
+    localStorage.removeItem('pendingGeneration');
     window.location.reload();
   };
 
@@ -654,7 +813,10 @@ const Dashboard = () => {
     setTopic('');
     setError('');
     setProgress(0);
+    setGeneratingSteps([]);
+    setIsGenerating(false);
     localStorage.removeItem('activeBlogFilename');
+    localStorage.removeItem('pendingGeneration');
   };
 
   const handleBlogSelect = async (blog) => {
@@ -683,7 +845,7 @@ const Dashboard = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPastBlogs(res.data);
-      
+
       // Auto-restore open blog after page refresh, but only if not prevented
       const activeFilename = localStorage.getItem('activeBlogFilename');
       if (activeFilename && !preventRestore) {
@@ -691,6 +853,7 @@ const Dashboard = () => {
       }
     } catch (err) {
       console.error('Failed to fetch past blogs', err);
+      setError('Failed to fetch past blogs: ' + err.message);
     }
   };
 
@@ -703,30 +866,81 @@ const Dashboard = () => {
     setSelectedBlog(null);
     setError('');
 
-    // Simulate progress dots
-    let p = 0;
-    const interval = setInterval(() => {
-      p = (p + 1) % 5;
-      setProgress(p);
-    }, 2000);
+    // Persist generation state so we can recover after page refresh
+    localStorage.setItem('pendingGeneration', JSON.stringify({ topic, startedAt: Date.now() }));
+    setGeneratingSteps([]);
 
+    let reader = null;
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`${API_BASE}/generate-blog`, { topic }, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await fetch(`${API_BASE}/generate-blog`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ topic })
       });
-      setGeneratedBlog(res.data);
-      if (res.data.filename) {
-        localStorage.setItem('activeBlogFilename', res.data.filename);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-      fetchPastBlogs(true);
+
+      reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let done = false;
+      let finalData = null;
+      let buffer = '';
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop(); // Keep the last incomplete part in the buffer
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.substring(6);
+              try {
+                const data = JSON.parse(dataStr);
+                if (data.type === 'progress') {
+                  setGeneratingSteps(prev => {
+                    if (!prev.includes(data.step)) {
+                      return [...prev, data.step];
+                    }
+                    return prev;
+                  });
+                } else if (data.type === 'done') {
+                  finalData = data.result;
+                } else if (data.type === 'error') {
+                  throw new Error(data.detail || 'Error during generation');
+                }
+              } catch (parseErr) {
+                console.error('Error parsing SSE data:', parseErr, dataStr);
+              }
+            }
+          }
+        }
+      }
+
+      if (finalData) {
+        setGeneratedBlog(finalData);
+        if (finalData.filename) {
+          localStorage.setItem('activeBlogFilename', finalData.filename);
+        }
+        fetchPastBlogs(true);
+      }
     } catch (err) {
       setError('Generation failed. Please try again.');
       console.error(err);
     } finally {
-      clearInterval(interval);
+      if (reader) {
+        reader.cancel().catch(console.error);
+      }
+      localStorage.removeItem('pendingGeneration');
       setIsGenerating(false);
-      setProgress(4);
       setIsEditing(false); // Reset editing mode on new generation
     }
   };
@@ -1035,7 +1249,7 @@ const Dashboard = () => {
             <div className="account-popover-menu">
               <div className="popover-header">ACCOUNT</div>
               <div className="popover-divider" />
-              <button 
+              <button
                 className="popover-item danger"
                 onClick={() => {
                   setShowAccountMenu(false);
@@ -1048,7 +1262,7 @@ const Dashboard = () => {
             </div>
           )}
 
-          <div 
+          <div
             className="account-pill-card"
             onClick={() => setShowAccountMenu(!showAccountMenu)}
             title="Account & Profile Settings"
@@ -1089,26 +1303,199 @@ const Dashboard = () => {
             <button onClick={() => setError('')} style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 'bold', fontSize: '1.1rem' }}>✕</button>
           </div>
         )}
-        {!selectedBlog && !generatedBlog && !isGenerating ? (
-          <div className="welcome-section">
-            <h1 className="welcome-title">Ready when you are.</h1>
+        {!selectedBlog && !generatedBlog ? (
+          <div className="welcome-section" style={isGenerating ? { justifyContent: 'flex-start', paddingBottom: 0 } : {}}>
+            {isGenerating ? (
+              <>
+                {/* Top area: user prompt bubble + loading steps */}
+                <div style={{ width: '100%', maxWidth: '800px', flex: 1, display: 'flex', flexDirection: 'column', paddingTop: '2rem' }}>
+                  <div style={{ 
+                    alignSelf: 'flex-end', 
+                    background: '#f3f4f6', 
+                    padding: '1rem 1.2rem', 
+                    borderRadius: '16px', 
+                    fontSize: '1.05rem', 
+                    color: '#1a1a1a', 
+                    marginBottom: '2.5rem',
+                    maxWidth: '80%',
+                    lineHeight: '1.5',
+                    border: '1px solid #e5e7eb'
+                  }}>
+                    {topic}
+                  </div>
+                  <div style={{ 
+                    alignSelf: 'flex-start', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    color: '#1a1a1a', 
+                    fontSize: '0.95rem', 
+                    fontWeight: 500,
+                    padding: '0.6rem 1rem',
+                    borderRadius: '8px',
+                    background: '#f0fdf4',
+                    border: '1px solid #d1fae5',
+                    marginBottom: '1rem'
+                  }}>
+                    <Loader2 size={18} style={{ marginRight: '10px', animation: 'spin 2s linear infinite', color: '#059669' }} />
+                    {(() => {
+                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
+                      const latestCompletedIndex = generatingSteps.length > 0 
+                        ? Math.max(...generatingSteps.map(s => ALL_STEPS.indexOf(s)))
+                        : -1;
+                      const currentStepText = ALL_STEPS[latestCompletedIndex + 1] || "Finalizing";
+                      return <span>{currentStepText} · {generatingSteps.length} completed</span>;
+                    })()}
+                    <span style={{ marginLeft: '10px', fontSize: '1.3rem', lineHeight: 1 }}>›</span>
+                  </div>
+
+                  {/* Detailed step list */}
+                  <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', paddingLeft: '0.5rem' }}>
+                    {(() => {
+                      const ALL_STEPS = ["Analyzing topic", "Researching the web", "Planning blog structure", "Writing sections", "Merging content", "Deciding image placement", "Generating images"];
+                      const latestCompletedIndex = generatingSteps.length > 0 
+                        ? Math.max(...generatingSteps.map(s => ALL_STEPS.indexOf(s)))
+                        : -1;
+                      
+                      return ALL_STEPS.map((step, i) => {
+                        const isDone = generatingSteps.includes(step);
+                        const isSkipped = !isDone && i < latestCompletedIndex;
+                        const isCompleted = isDone || isSkipped;
+                        const isActive = i === latestCompletedIndex + 1;
+                        
+                        return (
+                          <div key={step} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.6rem',
+                            fontSize: '0.85rem',
+                            color: isCompleted ? '#374151' : isActive ? '#111827' : '#6b7280',
+                            transition: 'color 0.3s ease'
+                          }}>
+                            {isCompleted ? (
+                              <span style={{ color: '#059669', fontSize: '1rem' }}>✓</span>
+                            ) : isActive ? (
+                              <Loader2 size={14} style={{ animation: 'spin 2s linear infinite', color: '#059669' }} />
+                            ) : (
+                              <span style={{ width: '14px', height: '14px', borderRadius: '50%', border: '1.5px solid #9ca3af', display: 'inline-block' }} />
+                            )}
+                            <span>{step}{isSkipped ? ' (Skipped)' : ''}</span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Bottom: disabled input bar */}
+                <div style={{ width: '100%', maxWidth: '800px', paddingBottom: '1.5rem', paddingTop: '1rem' }}>
+                  <div className="hero-input-container" style={{ margin: 0 }}>
+                    <div className="hero-prompt-wrapper" style={{ opacity: 0.5, pointerEvents: 'none' }}>
+                      <div className="hero-prompt-icon">
+                        <Brain size={22} color="#9ca3af" />
+                      </div>
+                      <textarea
+                        className="hero-prompt-input with-icon"
+                        rows="1"
+                        placeholder="Generating... please wait"
+                        disabled
+                        style={{ cursor: 'not-allowed' }}
+                      />
+                      <div className="hero-input-actions">
+                        <button className="gen-btn-circle" disabled type="button" style={{ opacity: 0.4 }}>
+                          <ArrowUp size={20} color="white" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#999', textAlign: 'center', marginTop: '0.8rem' }}>
+                    Blog Writing Agent can make mistakes. Check important info.
+                  </div>
+                </div>
+
+                <style>{`
+                  @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                  }
+                `}</style>
+              </>
+            ) : (
+              <h1 className="welcome-title">
+                <span key={headingIndex} className="sliding-text">
+                  {heroHeadings[headingIndex]}
+                </span>
+              </h1>
+            )}
+
+            {!isGenerating && (
+            <div className="hero-input-container">
+              <div className="hero-prompt-wrapper">
+                <div className="hero-prompt-icon">
+                  <Brain size={22} color="#9ca3af" />
+                </div>
+                <textarea
+                  ref={textareaRef}
+                  className="hero-prompt-input with-icon"
+                  rows="3"
+                  placeholder="Ask anything"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleGenerate();
+                    }
+                  }}
+                  disabled={isGenerating}
+                />
+                <div className="hero-input-actions">
+                  <div className="voice-btn-container">
+                    <button
+                      className={`voice-btn-circle ${isListening ? 'active' : ''}`}
+                      onClick={toggleVoiceInput}
+                      type="button"
+                    >
+                      {isListening ? (
+                        <div className="animated-wave">
+                          <span className="bar"></span>
+                          <span className="bar"></span>
+                          <span className="bar"></span>
+                          <span className="bar"></span>
+                          <span className="bar"></span>
+                        </div>
+                      ) : (
+                        <Mic size={20} color="#666" />
+                      )}
+                    </button>
+                    <div className="voice-tooltip">
+                      Dictate <span className="shortcut-keys">Ctrl + Shift + D</span>
+                    </div>
+                  </div>
+                  <button
+                    className="gen-btn-circle"
+                    disabled={isGenerating || !topic.trim()}
+                    onClick={handleGenerate}
+                    type="button"
+                  >
+                    <ArrowUp size={20} color="white" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            )}
+
+            {!isGenerating && (
+            <div style={{ fontSize: '0.75rem', color: '#999', textAlign: 'center', marginTop: '1.5rem' }}>
+              Blog Writing Agent can make mistakes. Check important info.
+            </div>
+            )}
           </div>
         ) : (
           <div className="chat-container">
-            {isGenerating ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '4rem' }}>
-                <div className="status-indicator" style={{ position: 'static', marginBottom: '1rem' }}>
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className={`progress-dot ${progress >= i ? 'active' : ''}`} />
-                  ))}
-                </div>
-                <div style={{ color: '#666', fontSize: '0.9rem' }}>Agents are researching and writing...</div>
-              </div>
-            ) : (
               <>
                 <div className="chat-header">
                   <div className="chat-title">
-                    {selectedBlog?.title || "New Blog"}
+                    {generatedBlog?.title || selectedBlog?.title || "New Blog"}
                   </div>
                   <div className="chat-actions" ref={menuRef}>
 
@@ -1117,9 +1504,7 @@ const Dashboard = () => {
                         className={`action-icon-btn ${showActionMenu ? 'active' : ''}`}
                         onClick={() => setShowActionMenu(!showActionMenu)}
                         title="Actions"
-                        style={{ width: 'auto', padding: '0 12px', gap: '8px' }}
                       >
-                        <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Actions</span>
                         <Menu size={20} />
                       </button>
 
@@ -1246,47 +1631,10 @@ const Dashboard = () => {
                   renderBlog(generatedBlog?.final || selectedBlog?.content, generatedBlog?.filename || selectedBlog?.filename)
                 )}
               </>
-            )}
           </div>
         )}
 
-        {/* Input Bar */}
-        {!selectedBlog && !generatedBlog && !isGenerating && (
-
-
-          <>
-            <div className="input-container">
-              <div className="prompt-bar-wrapper">
-                <textarea
-                  ref={textareaRef}
-                  className="prompt-input"
-                  rows="1"
-                  placeholder="Topic for your next blog..."
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleGenerate();
-                    }
-                  }}
-                  disabled={isGenerating}
-                />
-                <button
-                  className="gen-btn"
-                  disabled={isGenerating || !topic.trim()}
-                  onClick={handleGenerate}
-                >
-                  <ArrowUp size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'center', paddingBottom: '0.5rem' }}>
-              Blog Writing Agent can make mistakes. Check important info.
-            </div>
-          </>
-        )}
+        {/* Input bar moved to welcome screen */}
       </div>
     </div>
   );

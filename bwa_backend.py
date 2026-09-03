@@ -967,15 +967,19 @@ def _fetch_openai_image_bytes(prompt: str, size: str = "1024x576") -> Optional[b
             "model": model_name,
             "prompt": prompt[:1000],
             "n": 1,
-            "size": "1024x1024",
-            "response_format": "b64_json"
+            "size": "1024x1024"
         }
         print(f"  🎨 Generating image with OpenAI ({model_name})...")
         resp = requests.post(url, headers=headers, json=payload, timeout=45)
         if resp.status_code == 200:
             data = resp.json()
-            b64_data = data["data"][0]["b64_json"]
-            return base64.b64decode(b64_data)
+            image_url = data["data"][0]["url"]
+            img_resp = requests.get(image_url, timeout=30)
+            if img_resp.status_code == 200:
+                return img_resp.content
+            else:
+                print(f"  ❌ Failed to download image from OpenAI URL: {img_resp.status_code}")
+                return None
         else:
             print(f"  ❌ OpenAI ({model_name}) failed ({resp.status_code}): {resp.text[:200]}")
     except Exception as e:

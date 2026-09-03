@@ -25,7 +25,7 @@ class Blog(Base):
     filename = Column(String, unique=True, index=True)
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
 
     user = relationship("User", back_populates="blogs")
     images = relationship("BlogImage", back_populates="blog", cascade="all, delete-orphan")
@@ -36,6 +36,6 @@ class BlogImage(Base):
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, index=True)
     content = Column(LargeBinary)
-    blog_id = Column(Integer, ForeignKey("blogs.id"))
+    blog_id = Column(Integer, ForeignKey("blogs.id"), index=True)
 
     blog = relationship("Blog", back_populates="images")
