@@ -1582,16 +1582,6 @@ const Dashboard = () => {
                                 Disconnect LinkedIn
                               </button>
                             </>
-                          ) : import.meta.env.VITE_LINKEDIN_TOKEN ? (
-                            <button
-                              onClick={() => handleLinkedInPost(generatedBlog?.filename || selectedBlog?.filename)}
-                              className="dropdown-item"
-                              disabled={isEditing || isPostingLinkedIn}
-                              title="Post a summary to LinkedIn"
-                            >
-                              <ExternalLink size={16} />
-                              {isPostingLinkedIn ? 'Posting...' : 'Post to LinkedIn'}
-                            </button>
                           ) : (
                             <button
                               onClick={connectLinkedIn}
