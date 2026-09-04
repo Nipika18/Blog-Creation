@@ -1110,7 +1110,7 @@ const Dashboard = () => {
       .replace(/\[\s*(\!\[[^\]]*\]\([^\)]+\))/g, '$1')
       .replace(/\[\s*\n+(\!\[)/g, '\n\n$1');
 
-    const regex = /(\[+IMAGE_?(?:PLACEHOLDER_)?\d+(?:\:[^\]]+)?\]+)/gi;
+    const regex = /(\[{2}IMAGE_?(?:PLACEHOLDER_)?\d+(?::.*?)?\]{2})/gi;
     const parts = cleanContent.split(regex);
 
 
@@ -1136,7 +1136,7 @@ const Dashboard = () => {
       <div className="blog-output">
         {parts.map((part, idx) => {
           if (!part) return null;
-          const match = part.match(/^\[+IMAGE_?(?:PLACEHOLDER_)?(\d+)(?:\:\s*([^\]]+))?\]+$/i);
+          const match = part.match(/^\[{2}IMAGE_?(?:PLACEHOLDER_)?(\d+)(?::\s*(.*?))?\]{2}$/i);
           if (match) {
             const slotNum = match[1] || (idx + 1);
             const promptText = match[2] || '';

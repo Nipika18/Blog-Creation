@@ -927,7 +927,9 @@ def decide_images(state: State) -> dict:
         prompt_text = spec.get("prompt", "")
         if p_name and prompt_text and p_name in formatted_md:
             clean_tag = p_name.strip("[]")
-            formatted_md = formatted_md.replace(p_name, f"[[{clean_tag}: {prompt_text}]]")
+            # Strip brackets from prompt text to avoid breaking frontend placeholder regex
+            safe_prompt = prompt_text.replace("[", "").replace("]", "")
+            formatted_md = formatted_md.replace(p_name, f"[[{clean_tag}: {safe_prompt}]]")
 
     return {
         "md_with_placeholders": formatted_md,
