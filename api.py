@@ -31,13 +31,15 @@ ACTIVE_GENERATIONS = {}
 
 app = FastAPI(title="Blog Writing Agent API")
 
-# Enable CORS for React frontend
+public_url_env = os.getenv("PUBLIC_URL", "").rstrip("/")
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://localhost:8000",
 ]
+if public_url_env:
+    origins.append(public_url_env)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,8 +51,11 @@ app.add_middleware(
 )
 
 
-# Create tables
-models.Base.metadata.create_all(bind=database.engine)
+# Create tables safely on startup
+try:
+    models.Base.metadata.create_all(bind=database.engine)
+except Exception as e:
+    print(f"Warning: Could not create tables on startup: {e}")
 
 
 class UserCreate(BaseModel):
