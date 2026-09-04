@@ -112,7 +112,9 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=404, detail="Blog not found")
     
     import markdown
-    blog_html = markdown.markdown(blog.content, extensions=['extra', 'codehilite', 'toc'])
+    # Strip [[IMAGE_X: ...]] placeholders that weren't replaced with actual images
+    cleaned_content = re.sub(r'\[\[IMAGE_?\d+(?::.*?)?\]\]', '', blog.content, flags=re.IGNORECASE)
+    blog_html = markdown.markdown(cleaned_content, extensions=['extra', 'codehilite', 'toc'])
     
     # Fix image paths to absolute URLs
     blog_html = re.sub(r'src="/?images/', f'src="/images/', blog_html)
@@ -222,8 +224,9 @@ def public_blog_page(filename: str, db: Session = Depends(database.get_db)):
         img {{
             max-width: 100%;
             height: auto;
+            display: block;
+            margin: 2rem auto;
             border-radius: 12px;
-            margin: 2rem 0;
             box-shadow: 0 4px 20px rgba(0,0,0,0.08);
         }}
         blockquote {{

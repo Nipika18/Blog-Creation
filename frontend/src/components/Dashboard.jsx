@@ -13,6 +13,7 @@ import {
   FileText,
   Save,
   X,
+  ChevronsRight,
   Undo,
   Redo,
   Bold,
@@ -543,7 +544,7 @@ const Dashboard = () => {
   const [isPostingLinkedIn, setIsPostingLinkedIn] = useState(false);
   const [pendingLinkedInPost, setPendingLinkedInPost] = useState(null);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
   const textareaRef = useRef(null);
   const menuRef = useRef(null);
   const accountMenuRef = useRef(null);
@@ -1178,11 +1179,20 @@ const Dashboard = () => {
         <div className="mobile-overlay" onClick={() => setIsSidebarOpen(false)} />
       )}
       {/* Sidebar */}
-      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-        <button className="new-chat-btn" onClick={startNewChat}>
-          <SquarePen size={20} />
-          <span>New Blog</span>
-        </button>
+      <div className={`sidebar ${isSidebarOpen ? 'open' : 'closed'}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '2rem' }}>
+          <button className="new-chat-btn" style={{ flex: 1, marginBottom: 0 }} onClick={startNewChat}>
+            <SquarePen size={20} />
+            <span>New Blog</span>
+          </button>
+          <button
+            className="sidebar-close-btn"
+            onClick={() => setIsSidebarOpen(false)}
+            title="Close sidebar"
+          >
+            <ChevronsRight size={20} />
+          </button>
+        </div>
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.5)', margin: '1rem 0 0.5rem 0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>History</div>
@@ -1245,7 +1255,32 @@ const Dashboard = () => {
       </div>
 
       {/* Main Content */}
-      <div className="main-content">
+      <div className="main-content" style={{ position: 'relative' }}>
+        {!isSidebarOpen && (
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            title="Open sidebar"
+            style={{
+              position: 'absolute',
+              top: '1.2rem',
+              left: '1.2rem',
+              zIndex: 10,
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#666',
+              padding: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '8px'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <Menu size={24} />
+          </button>
+        )}
         {error && (
           <div style={{
             background: '#fef2f2',

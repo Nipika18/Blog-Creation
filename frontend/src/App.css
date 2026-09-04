@@ -191,6 +191,13 @@ body {
   padding: 0.8rem;
   overflow-y: auto;
   flex-shrink: 0;
+  transition: width 0.3s ease, padding 0.3s ease;
+}
+
+.sidebar.closed {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
 .new-chat-btn {
@@ -206,11 +213,30 @@ body {
   color: white;
   background: transparent;
   border: none;
-  width: 100%;
 }
 
 .new-chat-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.sidebar-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
 }
 
 .past-blog-item {
