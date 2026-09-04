@@ -486,10 +486,9 @@ body {
   font-weight: 600;
   color: #1a1a1a;
   font-size: 0.95rem;
-  max-width: 70%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .chat-actions {
