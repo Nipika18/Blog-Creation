@@ -1303,7 +1303,7 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
     post_json = post_resp.json() if post_resp.content else {}
     post_urn = post_json.get("id", "")
     
-    has_image = bool(first_image)
+    has_image = bool(first_image_url)
     post_type = "article link with image" if has_image else "article link"
     return {
         "message": f"Successfully posted to LinkedIn as {post_type}!",
