@@ -1288,12 +1288,17 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
     # Add a unique query param to prevent LinkedIn duplicate post rejection
     unique_blog_url = f"{blog_url}?ref={secrets.token_hex(3)}"
 
+    # Extract concise description for media card preview
+    desc = commentary.split('\n')[0] if commentary else blog_title
+    if len(desc) > 200:
+        desc = desc[:195] + "..."
+
     # --- Post as a Rich ARTICLE Share Card (Like LinkedIn Newsletters & Top Companies) ---
     media_item = {
         "status": "READY",
         "originalUrl": unique_blog_url,
         "title": {"text": blog_title},
-        "description": {"text": hook[:200]}
+        "description": {"text": desc}
     }
     
     # Extract the first image URL currently present in the active blog content
