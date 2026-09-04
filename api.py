@@ -1188,6 +1188,61 @@ def linkedin_disconnect(db: Session = Depends(database.get_db), current_user: mo
 class LinkedInPostRequest(BaseModel):
     access_token: Optional[str] = None
 
+def generate_linkedin_summary(title: str, content: str) -> str:
+    """Use AI to write an engaging, high-converting viral LinkedIn post summary."""
+    try:
+        from langchain_groq import ChatGroq
+        from langchain_core.messages import HumanMessage
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if groq_api_key:
+            llm = ChatGroq(model_name="llama-3.3-70b-versatile", groq_api_key=groq_api_key, temperature=0.7)
+            prompt = f"""You are a top tech influencer on LinkedIn. Write an eye-catching, high-converting LinkedIn post summarizing the blog below.
+
+Formatting guidelines:
+1. Start with a strong hook headline with emojis (e.g. 🚀, 💡, 🤖).
+2. Add a short 1-2 sentence context paragraph.
+3. List 3-4 bullet-point key takeaways using emojis like 💡 or 🔹.
+4. Add a clear Call-To-Action to check out the complete article and diagrams below.
+5. End with 4-5 relevant, capitalized hashtags.
+6. Clean formatting, proper line breaks, under 1200 characters.
+7. NO markdown code fences, NO intro comments—output ONLY the final post text.
+
+Blog Title: {title}
+Blog Content snippet:
+{content[:2000]}"""
+
+            resp = llm.invoke([HumanMessage(content=prompt)])
+            text = resp.content.strip()
+            text = re.sub(r'^```[\w]*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+            if text and len(text) > 50:
+                return text
+    except Exception as e:
+        print("LLM LinkedIn summary error:", e)
+
+    # Fallback template if LLM is unavailable:
+    clean_text = re.sub(r'!\[.*?\]\([^)]+\)', '', content)
+    clean_text = re.sub(r'^\s*[-=_]{3,}\s*$', '', clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r'^(Introduction|Overview|Summary)\s*$', '', clean_text, flags=re.IGNORECASE | re.MULTILINE)
+    clean_text = re.sub(r'\[\[IMAGE_\d+\]\]', '', clean_text)
+    clean_text = re.sub(r'^#+\s*', '', clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_text)
+    clean_text = re.sub(r'\n{2,}', '\n\n', clean_text).strip()
+
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 15]
+    hook = " ".join(sentences[:2]) if len(sentences) >= 2 else (sentences[0] if sentences else clean_text[:200])
+
+    title_words = [re.sub(r'[^a-zA-Z0-9]', '', w) for w in title.split()]
+    hashtags = " ".join([f"#{w.capitalize()}" for w in title_words if len(w) > 3][:5]) or "#Tech #AI #Innovation #Blog"
+
+    return (
+        f"🚀 {title}\n\n"
+        f"{hook}\n\n"
+        f"Discover full insights, key architecture, and practical takeaways in the complete article below!\n\n"
+        f"{hashtags}"
+    )
+
+
 @app.post("/blog/{filename}/post-to-linkedin")
 def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostRequest(), db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
     blog = db.query(models.Blog).filter(models.Blog.filename == filename, models.Blog.user_id == current_user.id).first()
@@ -1216,42 +1271,15 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
         db.commit()
 
     # --- Build Eye-Catching LinkedIn Article Post ---
-    blog_title = blog.title or request.topic if 'request' in locals() else (blog.title or "Blog Post")
+    blog_title = blog.title or (blog.title or "Blog Post")
     raw_blog_content = blog.content or ""
     
     # Get the public base URL (Render domain or tunnel)
     public_base_url = os.getenv("PUBLIC_URL", "https://blog-creation-eetn.onrender.com")
     blog_url = f"{public_base_url}/p/{filename}"
     
-    # Extract clean text for summary
-    clean_text = re.sub(r'!\[.*?\]\([^)]+\)', '', raw_blog_content)
-    clean_text = re.sub(r'^\s*\*[^*]+\*\s*$', '', clean_text, flags=re.MULTILINE)
-    clean_text = re.sub(r'\[\[IMAGE_\d+\]\]', '', clean_text)
-    clean_text = re.sub(r'^#+ .*$', '', clean_text, flags=re.MULTILINE)
-    clean_text = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_text)
-    clean_text = re.sub(r'\*(.+?)\*', r'\1', clean_text)
-    clean_text = re.sub(r'\n{2,}', '\n\n', clean_text).strip()
-    
-    # Extract first 2-3 sentences for a strong hook
-    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', clean_text) if len(s.strip()) > 10]
-    hook = " ".join(sentences[:2]) if len(sentences) >= 2 else (sentences[0] if sentences else clean_text[:200])
-    if len(hook) > 250:
-        hook = hook[:245] + "..."
-        
-    # Generate auto-hashtags based on title words
-    title_words = [re.sub(r'[^a-zA-Z0-9]', '', w) for w in blog_title.split()]
-    title_words = [w.capitalize() for w in title_words if len(w) > 3]
-    hashtags = " ".join([f"#{w}" for w in title_words[:5]])
-    if not hashtags:
-        hashtags = "#Tech #Innovation #AI #Article"
-    
-    # Build professional, eye-catching post commentary
-    commentary = (
-        f"🚀 {blog_title}\n\n"
-        f"{hook}\n\n"
-        f"Discover full insights, key architecture, and practical takeaways in the complete article below!\n\n"
-        f"{hashtags}"
-    )
+    # Generate high-converting, eye-catching commentary with AI
+    commentary = generate_linkedin_summary(blog_title, raw_blog_content)
     
     # Enforce LinkedIn 3,000 character limit
     if len(commentary) > 3000:
