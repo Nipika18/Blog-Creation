@@ -129,12 +129,12 @@ def get_llm_chain(schema=None, static_fallback=None, max_tokens_limit=4000, forc
 
     def _invoke_with_fallback(input_params):
         from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-        from langchain_groq import ChatGroq
         
         # 1. Try Groq (Primary)
         groq_key = os.getenv("GROQ_API_KEY")
         if groq_key:
             try:
+                from langchain_groq import ChatGroq
                 model_id = "llama-3.3-70b-versatile"
                 print(f" Generating with Groq ({model_id})...")
                 llm = ChatGroq(

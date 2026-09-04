@@ -6,6 +6,8 @@ langgraph
 langchain-openai
 langchain-core
 langchain-google-genai
+langchain-groq
+langchain-nvidia-ai-endpoints
 langchain-ollama
 openai
 pillow
