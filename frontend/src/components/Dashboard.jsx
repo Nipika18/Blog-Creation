@@ -193,8 +193,9 @@ const MenuBar = ({ editor, filename, onSave, onCancel, isSaving }) => {
       <div className="menu-divider" />
 
       <div className="menu-group">
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 1 }) ? 'active' : ''}`} title="H1">H1</button>
-        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 2 }) ? 'active' : ''}`} title="H2">H2</button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 1 }) ? 'active' : ''}`} title="Heading 1 (H1)">H1</button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 2 }) ? 'active' : ''}`} title="Heading 2 (H2)">H2</button>
+        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} className={`menu-btn ${editor.isActive('heading', { level: 3 }) ? 'active' : ''}`} title="Heading 3 (H3)">H3</button>
         <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleBulletList().run()} className={`menu-btn ${editor.isActive('bulletList') ? 'active' : ''}`} title="Bullet List"><List size={18} /></button>
         <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => editor.chain().focus().toggleOrderedList().run()} className={`menu-btn ${editor.isActive('orderedList') ? 'active' : ''}`} title="Ordered List"><ListOrdered size={18} /></button>
       </div>
@@ -537,6 +538,7 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState('');
+  const [editedTitle, setEditedTitle] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [isLoadingBlog, setIsLoadingBlog] = useState(false);
@@ -905,8 +907,10 @@ const Dashboard = () => {
 
   const handleEdit = () => {
     const rawContent = generatedBlog?.final || selectedBlog?.content || '';
+    const currentTitle = generatedBlog?.title || selectedBlog?.title || '';
     const htmlContent = converter.makeHtml(rawContent);
     setEditedContent(htmlContent);
+    setEditedTitle(currentTitle);
     if (editor) {
       editor.commands.setContent(htmlContent);
     }
@@ -928,16 +932,19 @@ const Dashboard = () => {
 
       const token = localStorage.getItem('token');
       await axios.put(`${API_BASE}/blog/${filename}`,
-        { content: markdownContent },
+        { content: markdownContent, title: editedTitle.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       // Update local state
       if (generatedBlog) {
-        setGeneratedBlog({ ...generatedBlog, final: markdownContent });
-      } else if (selectedBlog) {
-        setSelectedBlog({ ...selectedBlog, content: markdownContent });
+        setGeneratedBlog({ ...generatedBlog, title: editedTitle.trim(), final: markdownContent });
       }
+      if (selectedBlog) {
+        setSelectedBlog({ ...selectedBlog, title: editedTitle.trim(), content: markdownContent });
+      }
+
+      fetchPastBlogs(true);
 
       setIsEditing(false);
       setError('');
@@ -1473,7 +1480,29 @@ const Dashboard = () => {
                       <Menu size={20} />
                     </button>
                     <div className="chat-title">
-                      {generatedBlog?.title || selectedBlog?.title || "New Blog"}
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editedTitle}
+                          onChange={(e) => setEditedTitle(e.target.value)}
+                          className="edit-title-header-input"
+                          placeholder="Blog Title..."
+                          style={{
+                            fontSize: '1rem',
+                            fontWeight: 700,
+                            padding: '4px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #3b82f6',
+                            outline: 'none',
+                            width: '100%',
+                            maxWidth: '300px',
+                            color: '#0f172a',
+                            background: '#ffffff'
+                          }}
+                        />
+                      ) : (
+                        generatedBlog?.title || selectedBlog?.title || "New Blog"
+                      )}
                     </div>
                   </div>
                   <div className="chat-actions" ref={menuRef}>
@@ -1597,6 +1626,28 @@ const Dashboard = () => {
                       transition: 'opacity 0.2s ease'
                     }}
                   >
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: '12px 12px 0 0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Blog Main Title / Heading
+                      </label>
+                      <input
+                        type="text"
+                        value={editedTitle}
+                        onChange={(e) => setEditedTitle(e.target.value)}
+                        placeholder="Enter blog heading..."
+                        style={{
+                          width: '100%',
+                          fontSize: '1.2rem',
+                          fontWeight: 700,
+                          color: '#0f172a',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '6px',
+                          padding: '6px 10px',
+                          outline: 'none',
+                          background: '#ffffff'
+                        }}
+                      />
+                    </div>
                     <MenuBar
                       editor={editor}
                       filename={generatedBlog?.filename || selectedBlog?.filename}

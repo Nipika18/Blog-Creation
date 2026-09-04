@@ -645,6 +645,7 @@ def get_public_blog(filename: str, db: Session = Depends(database.get_db)):
 
 class BlogUpdateRequest(BaseModel):
     content: str
+    title: Optional[str] = None
 
 @app.put("/blog/{filename}")
 def update_blog(filename: str, request: BlogUpdateRequest, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
@@ -653,6 +654,8 @@ def update_blog(filename: str, request: BlogUpdateRequest, db: Session = Depends
         raise HTTPException(status_code=404, detail="Blog not found")
     
     blog.content = request.content
+    if request.title is not None:
+        blog.title = request.title
     blog.updated_at = datetime.utcnow()
     db.commit()
     return {"message": "Blog updated successfully"}
