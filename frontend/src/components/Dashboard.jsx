@@ -1263,29 +1263,30 @@ const Dashboard = () => {
 
       {/* Main Content */}
       <div className="main-content" style={{ position: 'relative' }}>
-        {!isSidebarOpen && (
+        {!isSidebarOpen && !selectedBlog && !generatedBlog && (
           <button
             onClick={() => setIsSidebarOpen(true)}
             title="Open sidebar"
             style={{
-              position: 'absolute',
-              top: '1.2rem',
-              left: '1.2rem',
-              zIndex: 10,
-              background: 'transparent',
-              border: 'none',
+              position: 'fixed',
+              top: '1rem',
+              left: '1rem',
+              zIndex: 90,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.08)',
               cursor: 'pointer',
-              color: '#666',
+              color: '#334155',
               padding: '0.5rem',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: '8px'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
           >
-            <Menu size={24} />
+            <Menu size={22} />
           </button>
         )}
         {error && (
@@ -1476,9 +1477,27 @@ const Dashboard = () => {
               <>
                 <div className="chat-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                    <button className="mobile-menu-btn" onClick={() => setIsSidebarOpen(true)}>
-                      <Menu size={20} />
-                    </button>
+                    {!isSidebarOpen && (
+                      <button
+                        onClick={() => setIsSidebarOpen(true)}
+                        title="Open sidebar"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#1a1a1a',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '6px'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.05)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <Menu size={20} />
+                      </button>
+                    )}
                     <div className="chat-title">
                       {isEditing ? (
                         <input
