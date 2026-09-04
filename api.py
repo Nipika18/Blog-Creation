@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
@@ -1049,15 +1049,30 @@ def read_root():
 
 LINKEDIN_CLIENT_ID = os.getenv("LINKEDIN_CLIENT_ID")
 LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET")
-LINKEDIN_REDIRECT_URI = os.getenv("LINKEDIN_REDIRECT_URI", "http://localhost:8000/linkedin/callback")
+
+def get_linkedin_redirect_uri(request: Request):
+    base_url = str(request.base_url).rstrip('/')
+    if "onrender.com" in base_url and base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://")
+    
+    env_uri = os.getenv("LINKEDIN_REDIRECT_URI")
+    if env_uri:
+        # If env_uri is set and matches local/prod environment, use it
+        if ("localhost" in env_uri) == ("localhost" in base_url):
+            return env_uri
+
+    return f"{base_url}/linkedin/callback"
+
 LINKEDIN_SCOPES = "openid profile w_member_social"
 
 
 @app.get("/linkedin/auth")
-def linkedin_auth(token: str = None):
+def linkedin_auth(request: Request, token: str = None):
     """Step 1: Redirect user to LinkedIn's authorization page."""
     if not LINKEDIN_CLIENT_ID:
         raise HTTPException(status_code=500, detail="LinkedIn Client ID not configured")
+    
+    redirect_uri = get_linkedin_redirect_uri(request)
     
     # Store the app's JWT token in state so we can identify the user after callback
     import urllib.parse
@@ -1066,7 +1081,7 @@ def linkedin_auth(token: str = None):
         f"https://www.linkedin.com/oauth/v2/authorization?"
         f"response_type=code&"
         f"client_id={LINKEDIN_CLIENT_ID}&"
-        f"redirect_uri={urllib.parse.quote(LINKEDIN_REDIRECT_URI)}&"
+        f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
         f"scope={urllib.parse.quote(LINKEDIN_SCOPES)}&"
         f"state={state}"
     )
@@ -1075,18 +1090,20 @@ def linkedin_auth(token: str = None):
 
 
 @app.get("/linkedin/callback")
-def linkedin_callback(code: str = None, state: str = None, error: str = None, db: Session = Depends(database.get_db)):
+def linkedin_callback(request: Request, code: str = None, state: str = None, error: str = None, db: Session = Depends(database.get_db)):
     """Step 2: LinkedIn redirects back here with an auth code. Exchange it for an access token."""
     if error:
         return {"error": error}
     if not code:
         raise HTTPException(status_code=400, detail="No authorization code received")
     
+    redirect_uri = get_linkedin_redirect_uri(request)
+    
     # Exchange code for access token
     token_resp = requests.post("https://www.linkedin.com/oauth/v2/accessToken", data={
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": LINKEDIN_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "client_id": LINKEDIN_CLIENT_ID,
         "client_secret": LINKEDIN_CLIENT_SECRET,
     }, headers={"Content-Type": "application/x-www-form-urlencoded"})
