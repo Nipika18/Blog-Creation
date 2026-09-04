@@ -1263,11 +1263,23 @@ def post_to_linkedin(filename: str, req: LinkedInPostRequest = LinkedInPostReque
         "description": {"text": hook[:200]}
     }
     
-    # Attach explicit thumbnail image URL if the blog has an image
-    first_image = blog.images[0] if (hasattr(blog, 'images') and blog.images) else None
-    if first_image:
-        img_url = f"{public_base_url.rstrip('/')}/images/{first_image.filename}"
-        media_item["thumbnails"] = [{"url": img_url}]
+    # Extract the first image URL currently present in the active blog content
+    first_image_url = None
+    img_match = re.search(r'!\[.*?\]\(([^)]+)\)', raw_blog_content)
+    if img_match:
+        img_src = img_match.group(1).strip()
+        if img_src.startswith('http://') or img_src.startswith('https://'):
+            first_image_url = img_src
+        else:
+            if not img_src.startswith('/'):
+                img_src = f"/{img_src}"
+            first_image_url = f"{public_base_url.rstrip('/')}{img_src}"
+    elif hasattr(blog, 'images') and blog.images:
+        latest_img = blog.images[-1]
+        first_image_url = f"{public_base_url.rstrip('/')}/images/{latest_img.filename}"
+
+    if first_image_url:
+        media_item["thumbnails"] = [{"url": first_image_url}]
 
     post_data = {
         "author": person_urn,
